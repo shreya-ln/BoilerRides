@@ -20,7 +20,7 @@ const Navigation = ({ isLoggedIn = false, onSignOut }: NavigationProps) => {
   return (
     <nav className="bg-secondary text-secondary-foreground px-6 py-4 border-b border-border">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
-        <Link to="/" className="flex items-center space-x-2">
+        <Link to={isLoggedIn ? "/dashboard" : "/"} className="flex items-center space-x-2">
           <Train className="h-8 w-8 text-primary" />
           <span className="text-2xl font-bold">BoilerRides</span>
         </Link>
