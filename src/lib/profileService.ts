@@ -91,11 +91,45 @@ export const profileService = {
     }
   },
 
+  // Helper function to clean up old avatar files
+  async cleanupOldAvatars(userId: string): Promise<void> {
+    try {
+      // List all files in the user's avatar folder
+      const { data: files, error: listError } = await supabase.storage
+        .from('avatars')
+        .list(userId)
+
+      if (listError || !files) return
+
+      // Keep only the most recent avatar file, delete the rest
+      if (files.length > 1) {
+        // Sort by created_at (newest first)
+        const sortedFiles = files.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        
+        // Delete all but the newest file
+        const filesToDelete = sortedFiles.slice(1).map(file => `${userId}/${file.name}`)
+        
+        if (filesToDelete.length > 0) {
+          await supabase.storage
+            .from('avatars')
+            .remove(filesToDelete)
+        }
+      }
+    } catch (error) {
+      // Silently fail - cleanup is not critical
+      console.warn('Failed to cleanup old avatars:', error)
+    }
+  },
+
   // Upload profile picture
   async uploadAvatar(userId: string, file: File): Promise<{ data: { path: string; publicUrl: string } | null; error: Error | null }> {
     try {
       const fileExt = file.name.split('.').pop()
-      const fileName = `${userId}/avatar.${fileExt}`
+      // Add timestamp to filename to prevent caching issues
+      const timestamp = Date.now()
+      const fileName = `${userId}/avatar-${timestamp}.${fileExt}`
 
       // Upload file to Supabase storage
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -113,6 +147,9 @@ export const profileService = {
       const { data: urlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(fileName)
+
+      // Cleanup old avatar files (don't wait for this)
+      this.cleanupOldAvatars(userId)
 
       return {
         data: {

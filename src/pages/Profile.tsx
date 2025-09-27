@@ -182,12 +182,15 @@ const Profile = () => {
         URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
       }
+      // Force a refresh of the profile data to get the latest avatar URL
+      await refreshProfile();
     } else {
       setErrors([profileError || 'Failed to upload avatar']);
     }
     setIsSubmitting(false);
   };
 
+  // Profile picture URL - previewUrl takes precedence during upload
   const currentProfilePicture = previewUrl || profile?.avatar_url;
 
   if (profileLoading) {
@@ -256,7 +259,7 @@ const Profile = () => {
             </CardHeader>
             <CardContent className="text-center">
               <div className="relative inline-block mb-4">
-                <Avatar className="w-32 h-32">
+                <Avatar className="w-32 h-32" key={currentProfilePicture || 'no-avatar'}>
                   <AvatarImage src={currentProfilePicture || undefined} />
                   <AvatarFallback className="text-2xl bg-primary/10 text-primary">
                     {profile?.first_name?.[0] || editData.first_name[0] || 'U'}{profile?.last_name?.[0] || editData.last_name[0] || 'U'}
