@@ -18,9 +18,20 @@ npm i
 # Step 4: Set up Supabase (required for authentication)
 # Follow the detailed instructions in SUPABASE_SETUP.md
 
-# Step 5: Start the development server with auto-reloading and an instant preview.
+# Step 5: Set up demo credentials for testing (optional but recommended)
+# Follow the instructions in DEMO_CREDENTIALS.md
+
+# Step 6: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
+
+## 🧪 Testing the Application
+
+For quick testing, use the demo credentials:
+- **Email:** demo@purdue.edu
+- **Password:** demo123
+
+See `DEMO_CREDENTIALS.md` for setup instructions.
 
 **Edit a file directly in GitHub**
 

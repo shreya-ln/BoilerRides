@@ -44,6 +44,18 @@ const SignIn = () => {
     }
   };
 
+  const fillDemoCredentials = () => {
+    setFormData({
+      email: "demo@purdue.edu",
+      password: "demo123"
+    });
+    setErrors({
+      email: "",
+      password: "",
+      general: "",
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -149,6 +161,30 @@ const SignIn = () => {
                 {isLoading ? "Signing In..." : "Sign In"}
               </Button>
             </form>
+            
+            <div className="mt-4 p-4 bg-muted/30 rounded-lg border border-dashed border-muted-foreground/30">
+              <p className="text-xs text-muted-foreground font-medium mb-2 text-center">
+                Demo Credentials (for testing)
+              </p>
+              <div className="space-y-1 text-xs font-mono">
+                <p className="text-muted-foreground">
+                  <span className="font-medium">Email:</span> demo@purdue.edu
+                </p>
+                <p className="text-muted-foreground">
+                  <span className="font-medium">Password:</span> demo123
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fillDemoCredentials}
+                className="w-full mt-3 px-3 py-2 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded-md transition-colors"
+              >
+                Fill Demo Credentials
+              </button>
+              <p className="text-xs text-muted-foreground/70 mt-2 text-center">
+                Use these credentials to test the application
+              </p>
+            </div>
             
             <div className="mt-6 space-y-4 text-center">
               <Link to="/forgot-password" className="text-sm text-primary hover:underline">

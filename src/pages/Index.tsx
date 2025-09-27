@@ -212,7 +212,7 @@ const Index = () => {
               </CardHeader>
               <CardContent>
                 <CardDescription className="text-base">
-                  Enhanced safety features with real-time tracking and verified user profiles.
+                  Enhanced safety features with verified user profiles and community guidelines.
                 </CardDescription>
               </CardContent>
             </Card>
@@ -267,7 +267,7 @@ const Index = () => {
               </div>
               <h3 className="text-xl font-semibold mb-4 text-secondary">Ride Safe</h3>
               <p className="text-muted-foreground">
-                Enjoy your journey with real-time tracking and 24/7 support.
+                Enjoy your journey with trusted community members and 24/7 support.
               </p>
             </div>
           </div>
