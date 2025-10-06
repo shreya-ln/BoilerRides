@@ -1,3 +1,4 @@
+-- ======================================================================================
 -- Supabase Database Schema for Profiles
 -- Run these commands in your Supabase SQL Editor
 
@@ -66,3 +67,43 @@ CREATE POLICY "Users can update their own avatar"
 CREATE POLICY "Users can delete their own avatar" 
     ON storage.objects FOR DELETE 
     USING (bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+-- ======================================================================================
+-- Supabase Database Schema for Rides
+-- Create rides table
+CREATE TABLE rides (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    origin TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    ride_date DATE NOT NULL,
+    ride_time TIME NOT NULL,
+    duration INTERVAL,
+    driver_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    rating NUMERIC(2,1),
+    price NUMERIC(10,2) NOT NULL,
+    seats_available INT NOT NULL,
+    total_seats INT NOT NULL
+);
+
+-- Enable Row Level Security
+ALTER TABLE rides ENABLE ROW LEVEL SECURITY;
+
+-- Policies: Drivers manage their own rides
+CREATE POLICY "Drivers can insert their own rides"
+    ON rides FOR INSERT
+    WITH CHECK (auth.uid() = driver_id);
+
+CREATE POLICY "Drivers can update their own rides"
+    ON rides FOR UPDATE
+    USING (auth.uid() = driver_id);
+
+CREATE POLICY "Drivers can delete their own rides"
+    ON rides FOR DELETE
+    USING (auth.uid() = driver_id);
+
+-- Policy: Anyone can view rides
+CREATE POLICY "Anyone can view rides"
+    ON rides FOR SELECT
+    USING (true);

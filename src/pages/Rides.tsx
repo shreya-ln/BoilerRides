@@ -1,62 +1,31 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MapPin, Users, Clock, Search, Plus, Car } from "lucide-react";
+import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon } from "lucide-react";
+
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+
 import Navigation from "@/components/Navigation";
 import { useNavigate } from "react-router-dom";
+import { supabase } from '@/lib/supabase';
 
 const Rides = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState("");
+
   const handleSignOut = () => {
     navigate("/");
   };
 
-  const availableRides = [
-    {
-      id: 1,
-      from: "West Lafayette",
-      to: "Chicago Airport",
-      date: "Tomorrow",
-      time: "2:00 PM",
-      driver: "Sarah M.",
-      rating: 4.9,
-      price: 30,
-      seatsAvailable: 3,
-      totalSeats: 4,
-      duration: "2h 30m"
-    },
-    {
-      id: 2,
-      from: "Purdue Campus",
-      to: "Indianapolis",
-      date: "Saturday",
-      time: "10:00 AM",
-      driver: "Mike T.",
-      rating: 4.8,
-      price: 20,
-      seatsAvailable: 2,
-      totalSeats: 4,
-      duration: "1h 45m"
-    },
-    {
-      id: 3,
-      from: "Downtown",
-      to: "Tippecanoe Mall",
-      date: "Today",
-      time: "6:00 PM",
-      driver: "Emma L.",
-      rating: 5.0,
-      price: 8,
-      seatsAvailable: 1,
-      totalSeats: 3,
-      duration: "20m"
-    }
-  ];
+  const [availableRides, setAvailableRides]  = useState([]);
 
   const myRides = [
     {
@@ -70,6 +39,46 @@ const Rides = () => {
       earnings: 60
     }
   ];
+
+  useEffect(() => {
+    const fetchRides = async () => {
+      try {
+        const { data, error } = await supabase.from("rides").select("*");
+        if (error) {
+          console.error("Error fetching rides:", error);
+          return;
+        }
+        setAvailableRides(data || []);
+      } catch (err) {
+        console.error("Unexpected error:", err);
+      }
+    };
+
+    fetchRides();
+  }, []);
+
+  const searchRides = async() => {
+    let query = supabase.from("rides").select("*");
+    if (searchQuery) {
+      // query = query.or(`to.ilike.%${searchQuery}%,from.ilike.%${searchQuery}%`);
+      query = query.ilike("to", `%${searchQuery}%`);
+    }
+    if (selectedDate) {
+      const formattedDate = format(selectedDate, "yyyy-MM-dd");
+      query = query.eq("date", formattedDate);
+    }
+    if (selectedTime) {
+      query = query.gte("time", selectedTime);
+    }
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Error fetching rides:", error);
+      return;
+    }
+
+    setAvailableRides(data || []);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -91,7 +100,13 @@ const Rides = () => {
             {/* Search Bar */}
             <Card>
               <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row gap-4">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    searchRides();
+                  }}
+                  className="flex flex-col md:flex-row gap-4"
+                >
                   <div className="flex-1 relative">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -101,11 +116,68 @@ const Rides = () => {
                       className="pl-10"
                     />
                   </div>
-                  <Button className="bg-gradient-primary hover:shadow-glow">
+
+                  {/* date picker */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="justify-start text-left font-normal w-full md:w-[200px]"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {selectedDate ? format(selectedDate, "PPP") : "Select date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={setSelectedDate}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {selectedDate && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSelectedDate(null)}
+                      title="Clear date"
+                    >
+                      ✕
+                    </Button>
+                  )}
+
+                  {/* time picker */}
+                  <div className="relative md:w-[150px]">
+                    <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="time"
+                      value={selectedTime}
+                      onChange={(e) => setSelectedTime(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  {selectedTime && (
+                    <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSelectedTime("")}
+                    title="Clear time"
+                    >
+                    ✕
+                    </Button>
+                  )}
+
+                  {/*  submit button */}
+                  <Button
+                    type="submit"
+                    className="bg-gradient-primary hover:shadow-glow"
+                  >
                     <Search className="h-4 w-4 mr-2" />
                     Search Rides
                   </Button>
-                </div>
+                </form>
               </CardContent>
             </Card>
 
