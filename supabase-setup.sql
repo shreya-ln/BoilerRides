@@ -84,7 +84,10 @@ CREATE TABLE rides (
     rating NUMERIC(2,1),
     price NUMERIC(10,2) NOT NULL,
     seats_available INT NOT NULL,
-    total_seats INT NOT NULL
+    total_seats INT NOT NULL,
+    car_type TEXT,
+    special_moment TEXT,
+    car_notes TEXT
 );
 
 -- Enable Row Level Security
@@ -107,3 +110,38 @@ CREATE POLICY "Drivers can delete their own rides"
 CREATE POLICY "Anyone can view rides"
     ON rides FOR SELECT
     USING (true);
+
+-- Optional metadata: special moment (e.g., concerts, games)
+ALTER TABLE rides
+  ADD COLUMN IF NOT EXISTS special_moment TEXT;
+
+-- ======================================================================================
+-- Ride bookings: track riders who signed up for seats
+CREATE TABLE IF NOT EXISTS ride_bookings (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    ride_id BIGINT REFERENCES rides(id) ON DELETE CASCADE,
+    rider_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    seats INT NOT NULL DEFAULT 1,
+    UNIQUE (ride_id, rider_id)
+);
+
+ALTER TABLE ride_bookings ENABLE ROW LEVEL SECURITY;
+
+-- Riders can insert their own bookings
+CREATE POLICY IF NOT EXISTS "Riders can insert own bookings"
+    ON ride_bookings FOR INSERT
+    WITH CHECK (auth.uid() = rider_id);
+
+-- Riders can view bookings for rides (for now allow all authenticated users)
+CREATE POLICY IF NOT EXISTS "Authenticated can view bookings"
+    ON ride_bookings FOR SELECT
+    USING (auth.role() = 'authenticated');
+
+-- Riders can update/delete their own booking
+CREATE POLICY IF NOT EXISTS "Riders manage own bookings"
+    ON ride_bookings FOR UPDATE USING (auth.uid() = rider_id)
+    WITH CHECK (auth.uid() = rider_id);
+
+CREATE POLICY IF NOT EXISTS "Riders delete own bookings"
+    ON ride_bookings FOR DELETE USING (auth.uid() = rider_id);

@@ -11,6 +11,7 @@ import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import Rides from "./pages/Rides";
+import CreateRide from "./pages/CreateRide";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,11 @@ const App = () => (
             <Route path="/rides" element={
               <ProtectedRoute requireProfile>
                 <Rides />
+              </ProtectedRoute>
+            } />
+            <Route path="/rides/create" element={
+              <ProtectedRoute requireProfile>
+                <CreateRide />
               </ProtectedRoute>
             } />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

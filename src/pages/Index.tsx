@@ -2,8 +2,30 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Train, Users, MapPin, Shield, Clock, DollarSign } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { ridesService } from "@/lib/ridesService";
+import { format, parseISO } from "date-fns";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [hosting, setHosting] = useState<any[]>([]);
+  const [booked, setBooked] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadUpcoming = async () => {
+      if (!user?.id) return;
+      const [{ data: host }, { data: bookedData }] = await Promise.all([
+        ridesService.listUpcomingHosting(user.id),
+        ridesService.listUpcomingBooked(user.id),
+      ]);
+      setHosting(host || []);
+      setBooked(bookedData || []);
+    };
+    loadUpcoming();
+  }, [user?.id]);
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
@@ -47,9 +69,45 @@ const Index = () => {
             <Button size="lg" variant="outline" className="border-secondary text-secondary hover:bg-secondary hover:text-secondary-foreground">
               Learn More
             </Button>
+            <Button size="lg" className="bg-gradient-primary hover:shadow-glow" onClick={() => navigate('/rides/create')}>
+              Post a Ride
+            </Button>
           </div>
         </div>
       </section>
+
+      {/* Upcoming Rides for the user */}
+      {user && (
+        <section className="py-16 px-6 bg-muted/30">
+          <div className="max-w-7xl mx-auto">
+            <h2 className="text-3xl font-bold mb-6 text-secondary">Upcoming Rides</h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              {hosting.map((r) => (
+                <Card key={`host-${r.id}`} className="bg-black text-white">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{r.origin} → {r.destination}</CardTitle>
+                      <Clock className="h-5 w-5" />
+                    </div>
+                    <CardDescription className="text-white/80">{format(parseISO(r.ride_date), 'EEE, MMM d')} at {format(new Date(`1970-01-01T${r.ride_time}`), 'h:mm a')}</CardDescription>
+                  </CardHeader>
+                </Card>
+              ))}
+              {booked.map((b) => (
+                <Card key={`book-${b.rides.id}`} className="border-primary">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg text-secondary">{b.rides.origin} → {b.rides.destination}</CardTitle>
+                      <Clock className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <CardDescription>{format(parseISO(b.rides.ride_date), 'EEE, MMM d')} at {format(new Date(`1970-01-01T${b.rides.ride_time}`), 'h:mm a')}</CardDescription>
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Available Rides Section */}
       <section className="py-20 px-6 bg-muted/30">

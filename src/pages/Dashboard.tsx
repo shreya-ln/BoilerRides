@@ -3,35 +3,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { MapPin, Users, Plus, Clock, Car } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { ridesService } from "@/lib/ridesService";
+import { format, parseISO } from "date-fns";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [hosting, setHosting] = useState<any[]>([]);
+  const [booked, setBooked] = useState<any[]>([]);
 
   const handleSignOut = () => {
     // In a real app, this would clear auth tokens/session
     navigate("/");
   };
 
-  const upcomingRides = [
-    {
-      id: 1,
-      destination: "Chicago Airport",
-      date: "Tomorrow",
-      time: "2:00 PM",
-      driver: "Sarah M.",
-      price: "$30",
-      seats: 2
-    },
-    {
-      id: 2,
-      destination: "Indianapolis",
-      date: "Saturday",
-      time: "10:00 AM",
-      driver: "You",
-      price: "$20",
-      seats: 3
-    }
-  ];
+  useEffect(() => {
+    const load = async () => {
+      if (!user?.id) return;
+      const [{ data: host }, { data: bookedData }] = await Promise.all([
+        ridesService.listUpcomingHosting(user.id),
+        ridesService.listUpcomingBooked(user.id),
+      ]);
+      setHosting(host || []);
+      setBooked(bookedData || []);
+    };
+    load();
+  }, [user?.id]);
 
   const quickActions = [
     { label: "Find a Ride", icon: Car, action: () => navigate("/rides") },
@@ -70,71 +69,87 @@ const Dashboard = () => {
           })}
         </div>
 
-        {/* Upcoming Rides */}
+        {/* Upcoming Rides (live) */}
         <div className="mb-12">
           <h2 className="text-2xl font-bold text-secondary mb-6">Your Upcoming Rides</h2>
           <div className="grid md:grid-cols-2 gap-6">
-            {upcomingRides.map((ride) => (
-              <Card key={ride.id} className="hover:shadow-purdue transition-shadow">
+            {hosting.map((r) => {
+              const signedUp = Math.max(0, Number(r.total_seats) - Number(r.seats_available))
+              const earnings = (signedUp * Number(r.price || 0)).toFixed(2)
+              return (
+              <Card key={`host-${r.id}`} className="hover:shadow-purdue transition-shadow bg-black text-white">
                 <CardHeader>
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg text-secondary">{ride.destination}</CardTitle>
+                    <CardTitle className="text-lg text-white">
+                      {r.special_moment ? <span className="text-primary">({r.special_moment})</span> : null} {r.origin} → {r.destination}
+                    </CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm">
+                        <span className="inline-block px-2 py-1 border border-white rounded">You're driving</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm text-white/80">Earnings so far:</span>
+                        <p className="text-lg font-bold text-primary">${earnings}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-white/80">{signedUp}/{r.total_seats} people signed up</div>
+                      <Button size="sm" className="bg-white text-black hover:bg-white/90" onClick={() => navigate(`/rides/create?id=${r.id}`)}>
+                        View Details
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-between text-white/80 text-sm">
+                      <div>{format(parseISO(r.ride_date), 'EEE, MMM d')} at {format(new Date(`1970-01-01T${r.ride_time}`), 'h:mm a')}</div>
+                      <div>{r.seats_available}/{r.total_seats} seats available</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )})}
+            {booked.map((b) => {
+              const signedUp = Math.max(0, Number(b.rides.total_seats) - Number(b.rides.seats_available))
+              return (
+              <Card key={`book-${b.rides.id}`} className="hover:shadow-purdue transition-shadow">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg text-secondary">
+                      {b.rides.special_moment ? <span className="text-primary">({b.rides.special_moment})</span> : null} {b.rides.origin} → {b.rides.destination}
+                    </CardTitle>
                     <div className="flex items-center space-x-2 text-muted-foreground">
                       <Clock className="h-4 w-4" />
-                      <span className="text-sm">{ride.date}, {ride.time}</span>
+                      <span className="text-sm">{format(parseISO(b.rides.ride_date), 'EEE, MMM d')} at {format(new Date(`1970-01-01T${b.rides.ride_time}`), 'h:mm a')}</span>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        {ride.driver === "You" ? "You're driving" : `Driver: ${ride.driver}`}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {ride.seats} seats {ride.driver === "You" ? "available" : "reserved"}
-                      </p>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-muted-foreground">Driver: {(b.rides.profiles && `${b.rides.profiles.first_name ?? ''} ${b.rides.profiles.last_name ?? ''}`.trim()) || '—'}</div>
+                      <div className="text-sm text-muted-foreground">{signedUp}/{b.rides.total_seats} people signed up</div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-primary">{ride.price}</p>
-                      <Button size="sm" variant="outline">
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <div>{format(parseISO(b.rides.ride_date), 'EEE, MMM d')} at {format(new Date(`1970-01-01T${b.rides.ride_time}`), 'h:mm a')}</div>
+                      <Button size="sm" variant="outline" onClick={() => navigate('/rides')}>
                         View Details
                       </Button>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            )})}
           </div>
         </div>
 
-        {/* Recent Activity */}
+        {/* Recent Activity (no placeholders) */}
         <div>
           <h2 className="text-2xl font-bold text-secondary mb-6">Recent Activity</h2>
           <Card>
             <CardContent className="p-6">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-4 p-4 bg-muted/30 rounded-lg">
-                  <div className="bg-green-100 p-2 rounded-full">
-                    <Car className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-secondary">Ride completed to Downtown</p>
-                    <p className="text-sm text-muted-foreground">Yesterday, 6:30 PM</p>
-                  </div>
-                  <p className="text-primary font-medium">$5.00</p>
-                </div>
-                
-                <div className="flex items-center space-x-4 p-4 bg-muted/30 rounded-lg">
-                  <div className="bg-blue-100 p-2 rounded-full">
-                    <Users className="h-4 w-4 text-blue-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-secondary">Profile updated</p>
-                    <p className="text-sm text-muted-foreground">2 days ago</p>
-                  </div>
-                </div>
-              </div>
+              <p className="text-sm text-muted-foreground">No recent activity yet.</p>
             </CardContent>
           </Card>
         </div>
