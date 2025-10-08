@@ -76,6 +76,7 @@ const CreateRide = () => {
       setTotalSeats(String(data.total_seats ?? ''))
       setCarType(data.car_type || '')
       setCarNotes(data.car_notes || '')
+      setSpecialMoment(data.special_moment || '')
     }
     loadRide()
   }, [editingId, toast])

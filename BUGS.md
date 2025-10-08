@@ -1,6 +1,7 @@
 When signing up:
     - When user clicks verification email link, it opens a new page and confirms them in the backend
         - However, the URL header shows link has expired or incorrect confusing users
+        - http://localhost:8080/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired
 
 When creating profile:
     - There are two save buttons, one at top and one at bottom

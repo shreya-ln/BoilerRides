@@ -379,10 +379,7 @@ const Rides = () => {
                         </div>
                         <div className="flex flex-col space-y-2">
                           <Button variant="outline" size="sm" onClick={() => navigate(`/rides/create?id=${ride.id}`)}>
-                            View Details
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/rides/create?id=${ride.id}`)}>
-                            Edit Ride
+                            View / Edit
                           </Button>
                         </div>
                       </div>
