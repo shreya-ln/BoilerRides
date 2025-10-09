@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from './useAuth'
 import { profileService, Profile, CreateProfileData, UpdateProfileData } from '@/lib/profileService'
 
@@ -14,190 +15,200 @@ interface UseProfileReturn {
   refreshProfile: () => Promise<void>
 }
 
+const PROFILE_QUERY_KEY = 'profile'
+
 export const useProfile = (): UseProfileReturn => {
   const { user } = useAuth()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  // Load profile data
-  const loadProfile = useCallback(async () => {
-    if (!user?.id) {
-      setProfile(null)
-      setLoading(false)
-      return
-    }
+  const userId = user?.id ?? null
+  const queryKey = [PROFILE_QUERY_KEY, userId] as const
 
-    try {
-      setLoading(true)
-      setError(null)
-      
-      const { data, error: profileError } = await profileService.getProfile(user.id)
-      
-      if (profileError) {
-        setError(profileError.message)
-        setProfile(null)
-      } else {
-        setProfile(data)
+  const profileQuery = useQuery({
+    queryKey,
+    queryFn: async () => {
+      if (!userId) return null
+
+      const { data, error } = await profileService.getProfile(userId)
+      if (error) {
+        throw new Error(error.message ?? 'Failed to load profile')
       }
-    } catch (err) {
-      setError('Failed to load profile')
-      setProfile(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [user?.id])
 
-  // Load profile on user change
-  useEffect(() => {
-    loadProfile()
-  }, [loadProfile])
+      return data
+    },
+    enabled: !!userId,
+    staleTime: 0
+  })
 
-  // Create new profile
+  const setSharedProfile = (nextProfile: Profile | null) => {
+    if (!userId) return
+    queryClient.setQueryData(queryKey, nextProfile)
+  }
+
+  const refetchProfile = async () => {
+    if (!userId) return
+    await queryClient.invalidateQueries({ queryKey, refetchType: 'active' })
+  }
+
   const createProfile = async (data: CreateProfileData): Promise<boolean> => {
-    if (!user?.id) {
-      setError('User not authenticated')
+    if (!userId) {
+      setActionError('User not authenticated')
       return false
     }
 
+    const validation = profileService.validateProfileData(data)
+    if (!validation.isValid) {
+      setActionError(validation.errors[0])
+      return false
+    }
+
+    setActionLoading(true)
+    setActionError(null)
+
     try {
-      setLoading(true)
-      setError(null)
+      const { data: newProfile, error } = await profileService.createProfile(userId, data)
 
-      // Validate data
-      const validation = profileService.validateProfileData(data)
-      if (!validation.isValid) {
-        setError(validation.errors[0])
-        return false
+      if (error) {
+        throw new Error(error.message ?? 'Failed to create profile')
       }
 
-      const { data: newProfile, error: createError } = await profileService.createProfile(user.id, data)
-      
-      if (createError) {
-        setError(createError.message)
-        return false
+      if (newProfile) {
+        setSharedProfile(newProfile)
+      } else {
+        await refetchProfile()
       }
 
-      setProfile(newProfile)
       return true
     } catch (err) {
-      setError('Failed to create profile')
+      const message = err instanceof Error ? err.message : 'Failed to create profile'
+      setActionError(message)
       return false
     } finally {
-      setLoading(false)
+      setActionLoading(false)
     }
   }
 
-  // Update existing profile
   const updateProfile = async (updates: UpdateProfileData): Promise<boolean> => {
-    if (!user?.id) {
-      setError('User not authenticated')
+    if (!userId) {
+      setActionError('User not authenticated')
       return false
     }
 
+    const validation = profileService.validateProfileData(updates)
+    if (!validation.isValid) {
+      setActionError(validation.errors[0])
+      return false
+    }
+
+    setActionLoading(true)
+    setActionError(null)
+
     try {
-      setLoading(true)
-      setError(null)
+      const { data: updatedProfile, error } = await profileService.updateProfile(userId, updates)
 
-      // Validate data
-      const validation = profileService.validateProfileData(updates)
-      if (!validation.isValid) {
-        setError(validation.errors[0])
-        return false
+      if (error) {
+        throw new Error(error.message ?? 'Failed to update profile')
       }
 
-      const { data: updatedProfile, error: updateError } = await profileService.updateProfile(user.id, updates)
-      
-      if (updateError) {
-        setError(updateError.message)
-        return false
+      if (updatedProfile) {
+        setSharedProfile(updatedProfile)
+      } else {
+        await refetchProfile()
       }
 
-      setProfile(updatedProfile)
       return true
     } catch (err) {
-      setError('Failed to update profile')
+      const message = err instanceof Error ? err.message : 'Failed to update profile'
+      setActionError(message)
       return false
     } finally {
-      setLoading(false)
+      setActionLoading(false)
     }
   }
 
-  // Upload profile picture
   const uploadAvatar = async (file: File): Promise<boolean> => {
-    if (!user?.id) {
-      setError('User not authenticated')
+    if (!userId) {
+      setActionError('User not authenticated')
       return false
     }
 
-    try {
-      setLoading(true)
-      setError(null)
+    setActionLoading(true)
+    setActionError(null)
 
-      // Upload file
-      const { data: uploadData, error: uploadError } = await profileService.uploadAvatar(user.id, file)
-      
+    try {
+      const { data: uploadData, error: uploadError } = await profileService.uploadAvatar(userId, file)
+
       if (uploadError) {
-        setError('Failed to upload image')
-        return false
+        throw new Error('Failed to upload image')
       }
 
       if (!uploadData) {
-        setError('Upload failed')
-        return false
+        throw new Error('Upload failed')
       }
 
-      // Update profile with new avatar URL
-      const { data: updatedProfile, error: updateError } = await profileService.updateAvatar(user.id, uploadData.publicUrl)
-      
+      const { data: updatedProfile, error: updateError } = await profileService.updateAvatar(userId, uploadData.publicUrl)
+
       if (updateError) {
-        setError('Failed to update profile with new avatar')
-        return false
+        throw new Error(updateError.message ?? 'Failed to update profile with new avatar')
       }
 
-      setProfile(updatedProfile)
+      if (updatedProfile) {
+        setSharedProfile(updatedProfile)
+      } else {
+        await refetchProfile()
+      }
+
       return true
     } catch (err) {
-      setError('Failed to upload avatar')
+      const message = err instanceof Error ? err.message : 'Failed to upload avatar'
+      setActionError(message)
       return false
     } finally {
-      setLoading(false)
+      setActionLoading(false)
     }
   }
 
-  // Delete profile picture
   const deleteAvatar = async (): Promise<boolean> => {
-    if (!user?.id) {
-      setError('User not authenticated')
+    if (!userId) {
+      setActionError('User not authenticated')
       return false
     }
+
+    setActionLoading(true)
+    setActionError(null)
 
     try {
-      setLoading(true)
-      setError(null)
+      const { error: deleteError } = await profileService.deleteAvatar(userId)
 
-      const { error: deleteError } = await profileService.deleteAvatar(user.id)
-      
       if (deleteError) {
-        setError('Failed to delete avatar')
-        return false
+        throw new Error(deleteError.message ?? 'Failed to delete avatar')
       }
 
-      // Refresh profile to get updated data
-      await loadProfile()
+      await refetchProfile()
       return true
     } catch (err) {
-      setError('Failed to delete avatar')
+      const message = err instanceof Error ? err.message : 'Failed to delete avatar'
+      setActionError(message)
       return false
     } finally {
-      setLoading(false)
+      setActionLoading(false)
     }
   }
 
-  // Refresh profile data
   const refreshProfile = async (): Promise<void> => {
-    await loadProfile()
+    setActionError(null)
+    await refetchProfile()
   }
+
+  const profile = profileQuery.data ?? null
+  const queryError = profileQuery.error instanceof Error ? profileQuery.error.message : null
+  const error = actionError ?? queryError
+
+  const loading =
+    actionLoading ||
+    (!!userId && profileQuery.isPending)
 
   return {
     profile,
