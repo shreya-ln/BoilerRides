@@ -40,7 +40,7 @@ const Profile = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Check for welcome message from route state
-  const welcomeMessage = location.state?.message as string;
+  const welcomeMessage = !isComplete ? (location.state?.message as string) : null;
 
   // Initialize edit data when profile loads
   useEffect(() => {
@@ -60,6 +60,13 @@ const Profile = () => {
       }));
     }
   }, [profile, user, profileLoading]);
+
+  // Clear any "complete profile" message once requirements are satisfied
+  useEffect(() => {
+    if (isComplete && location.state?.message) {
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [isComplete, location.pathname, location.state, navigate]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -292,16 +299,6 @@ const Profile = () => {
                   </Button>
                 </div>
               )}
-              {!isEditing && !selectedFile && profile && (
-                <Button 
-                  variant="outline" 
-                  onClick={() => setIsEditing(true)}
-                  className="mt-4"
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Profile
-                </Button>
-              )}
               {!profile && !isEditing && (
                 <Button 
                   onClick={() => setIsEditing(true)}
@@ -319,18 +316,7 @@ const Profile = () => {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-secondary">Profile Information</CardTitle>
-                  {isEditing ? (
-                    <div className="flex space-x-2">
-                      <Button onClick={handleSave} size="sm">
-                        <Save className="h-4 w-4 mr-2" />
-                        Save
-                      </Button>
-                      <Button onClick={handleCancel} variant="outline" size="sm">
-                        <X className="h-4 w-4 mr-2" />
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
+                  {!isEditing && (
                     <Button onClick={() => setIsEditing(true)} variant="outline" size="sm">
                       <Edit className="h-4 w-4 mr-2" />
                       Edit
@@ -459,15 +445,7 @@ const Profile = () => {
                         </Button>
                       )}
                     </>
-                  ) : (
-                    <Button 
-                      onClick={() => setIsEditing(true)} 
-                      className="flex-1 bg-gradient-primary hover:shadow-glow"
-                    >
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit Profile
-                    </Button>
-                  )}
+                  ) : null}
                 </div>
               </CardContent>
             </Card>
