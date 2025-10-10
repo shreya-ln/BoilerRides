@@ -235,6 +235,7 @@ const Rides = () => {
 
             {/* Available Rides */}
             <div className="space-y-4">
+              {availableRides.length == 0 && <h1>No rides found</h1>}
               {availableRides.map((ride) => (
                 <Card key={ride.id} className={`hover:shadow-purdue transition-shadow ${user?.id === ride.driver_id ? 'bg-black text-white' : ''}`}>
                   <CardContent className="p-6">
