@@ -110,7 +110,7 @@ const Rides = () => {
       query = query.eq("ride_date", formattedDate);
     }
     if (selectedTime) {
-      query = query.gte("ride_time", selectedTime);
+      query = query.lte("ride_time", selectedTime);
     }
     const { data, error } = await query;
 
