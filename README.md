@@ -2,9 +2,6 @@ Supabase is already connected
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/1b7dd81b-c919-4076-9ef4-4eec8022d7e7
-
-
 ```sh
 # Step 1: Clone the repository using the project's Git URL.
 git clone <YOUR_GIT_URL>
