@@ -57,6 +57,10 @@ const CreateRide = () => {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loadingRide, setLoadingRide] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)
+  const [autocompleteElements, setAutocompleteElements] = useState<{
+    origin: any
+    destination: any
+  }>({ origin: null, destination: null })
 
   useEffect(() => {
     const loadRide = async () => {
@@ -81,7 +85,7 @@ const CreateRide = () => {
     loadRide()
   }, [editingId, toast])
 
-  // Initialize Google Places Autocomplete for origin/destination
+  // Initialize Google Places Autocomplete for origin/destination using PlaceAutocompleteElement
   useEffect(() => {
     const init = async () => {
       try {
@@ -89,28 +93,93 @@ const CreateRide = () => {
         if (!apiKey) return
         await loadGoogleMaps(apiKey)
         const g = (window as any).google
-        if (!g?.maps?.places?.Autocomplete) return
-        const originInput = document.getElementById('origin') as HTMLInputElement | null
-        const destInput = document.getElementById('destination') as HTMLInputElement | null
-        if (originInput) {
-          const ac1 = new g.maps.places.Autocomplete(originInput, { types: ['geocode'] })
-          ac1.addListener('place_changed', () => {
-            const place = ac1.getPlace()
-            if (place?.formatted_address) setOrigin(place.formatted_address)
-          })
+        if (!g?.maps?.places?.PlaceAutocompleteElement) return
+        
+        const originContainer = document.getElementById('origin-container')
+        const destContainer = document.getElementById('destination-container')
+        
+        // Clean up existing elements
+        if (autocompleteElements.origin) {
+          autocompleteElements.origin.remove()
         }
-        if (destInput) {
-          const ac2 = new g.maps.places.Autocomplete(destInput, { types: ['geocode'] })
-          ac2.addListener('place_changed', () => {
-            const place = ac2.getPlace()
-            if (place?.formatted_address) setDestination(place.formatted_address)
+        if (autocompleteElements.destination) {
+          autocompleteElements.destination.remove()
+        }
+        
+        if (originContainer) {
+          const ac1 = new g.maps.places.PlaceAutocompleteElement({
+            types: ['geocode'],
+            componentRestrictions: { country: 'us' }
           })
+          
+          // Style the autocomplete element to match our design
+          ac1.style.cssText = `
+            width: 100%;
+            height: 40px;
+            padding: 8px 12px 8px 36px;
+            border: 1px solid hsl(var(--border));
+            border-radius: 6px;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            font-size: 14px;
+            outline: none;
+          `
+          ac1.setAttribute('placeholder', 'e.g., West Lafayette')
+          
+          // Set up event listener for place selection
+          ac1.addEventListener('gmp-placeselect', (event: any) => {
+            const place = event.place
+            if (place?.formattedAddress) setOrigin(place.formattedAddress)
+          })
+          
+          originContainer.appendChild(ac1)
+          setAutocompleteElements(prev => ({ ...prev, origin: ac1 }))
+        }
+        
+        if (destContainer) {
+          const ac2 = new g.maps.places.PlaceAutocompleteElement({
+            types: ['geocode'],
+            componentRestrictions: { country: 'us' }
+          })
+          
+          // Style the autocomplete element to match our design
+          ac2.style.cssText = `
+            width: 100%;
+            height: 40px;
+            padding: 8px 12px 8px 36px;
+            border: 1px solid hsl(var(--border));
+            border-radius: 6px;
+            background-color: hsl(var(--background));
+            color: hsl(var(--foreground));
+            font-size: 14px;
+            outline: none;
+          `
+          ac2.setAttribute('placeholder', 'e.g., Indianapolis')
+          
+          // Set up event listener for place selection
+          ac2.addEventListener('gmp-placeselect', (event: any) => {
+            const place = event.place
+            if (place?.formattedAddress) setDestination(place.formattedAddress)
+          })
+          
+          destContainer.appendChild(ac2)
+          setAutocompleteElements(prev => ({ ...prev, destination: ac2 }))
         }
       } catch (_e) {
         // fail silently if maps unavailable
       }
     }
     init()
+    
+    // Cleanup function
+    return () => {
+      if (autocompleteElements.origin) {
+        autocompleteElements.origin.remove()
+      }
+      if (autocompleteElements.destination) {
+        autocompleteElements.destination.remove()
+      }
+    }
   }, [])
 
   // Validate form fields
@@ -119,6 +188,16 @@ const CreateRide = () => {
     if (!origin.trim()) errors.origin = 'Origin is required'
     if (!destination.trim()) errors.destination = 'Destination is required'
     if (!rideDate) errors.rideDate = 'Date is required'
+    else {
+      // Check if selected date is in the past
+      const today = new Date()
+      today.setHours(0, 0, 0, 0) // Reset time to start of day for accurate comparison
+      const selectedDate = new Date(rideDate)
+      selectedDate.setHours(0, 0, 0, 0)
+      if (selectedDate < today) {
+        errors.rideDate = 'Cannot select a date in the past'
+      }
+    }
     if (!rideTime) errors.rideTime = 'Time is required'
     const priceNum = Number(price)
     if (!price || isNaN(priceNum) || priceNum <= 0) errors.price = 'Enter a valid price'
@@ -203,8 +282,11 @@ const CreateRide = () => {
                 <div className="space-y-2">
                   <Label htmlFor="origin">From<span className="text-destructive"> *</span></Label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input id="origin" placeholder="e.g., West Lafayette" className={`pl-9 ${fieldErrors.origin ? 'border-destructive' : ''}`} value={origin} onChange={(e) => { setOrigin(e.target.value); if (fieldErrors.origin) setFieldErrors({ ...fieldErrors, origin: '' }) }} />
+                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
+                    <div 
+                      id="origin-container" 
+                      className={`${fieldErrors.origin ? 'border-destructive' : ''}`}
+                    />
                   </div>
                   {fieldErrors.origin && <p className="text-sm text-destructive">{fieldErrors.origin}</p>}
                   <div className="flex gap-2 flex-wrap">
@@ -218,8 +300,11 @@ const CreateRide = () => {
                 <div className="space-y-2">
                   <Label htmlFor="destination">To<span className="text-destructive"> *</span></Label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input id="destination" placeholder="e.g., Indianapolis" className={`pl-9 ${fieldErrors.destination ? 'border-destructive' : ''}`} value={destination} onChange={(e) => { setDestination(e.target.value); if (fieldErrors.destination) setFieldErrors({ ...fieldErrors, destination: '' }) }} />
+                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
+                    <div 
+                      id="destination-container" 
+                      className={`${fieldErrors.destination ? 'border-destructive' : ''}`}
+                    />
                   </div>
                   {fieldErrors.destination && <p className="text-sm text-destructive">{fieldErrors.destination}</p>}
                   <div className="flex gap-2 flex-wrap">
@@ -243,15 +328,36 @@ const CreateRide = () => {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="p-0" align="start">
-                    <Calendar mode="single" selected={rideDate} onSelect={(d) => { setRideDate(d || null); setDateOpen(false); if (fieldErrors.rideDate) setFieldErrors({ ...fieldErrors, rideDate: '' }) }} initialFocus />
+                    <Calendar 
+                      mode="single" 
+                      selected={rideDate} 
+                      onSelect={(d) => { setRideDate(d || null); setDateOpen(false); if (fieldErrors.rideDate) setFieldErrors({ ...fieldErrors, rideDate: '' }) }} 
+                      disabled={(date) => {
+                        // Disable dates before today
+                        const today = new Date()
+                        today.setHours(0, 0, 0, 0)
+                        return date < today
+                      }}
+                      initialFocus 
+                    />
                     </PopoverContent>
                   </Popover>
                 <div className="flex gap-2 mt-2 flex-wrap w-full">
-                    {popularDates.map((p) => (
-                      <Button key={p.label} type="button" variant="secondary" size="sm" onClick={() => setRideDate(p.value)}>
-                        {p.label}
-                      </Button>
-                    ))}
+                    {popularDates.map((p) => {
+                      const isPastDate = p.value < new Date(new Date().toDateString())
+                      return (
+                        <Button 
+                          key={p.label} 
+                          type="button" 
+                          variant="secondary" 
+                          size="sm" 
+                          disabled={isPastDate}
+                          onClick={() => !isPastDate && setRideDate(p.value)}
+                        >
+                          {p.label}
+                        </Button>
+                      )
+                    })}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">Legend: <span className="font-semibold text-black">Today</span> is black, <span className="text-primary font-semibold">Selected</span> is gold.</p>
                   {fieldErrors.rideDate && <p className="text-sm text-destructive">{fieldErrors.rideDate}</p>}
