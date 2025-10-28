@@ -115,7 +115,6 @@ CREATE POLICY "Anyone can view rides"
 ALTER TABLE rides
   ADD COLUMN IF NOT EXISTS special_moment TEXT;
 
--- ======================================================================================
 -- Ride bookings: track riders who signed up for seats
 CREATE TABLE IF NOT EXISTS ride_bookings (
     id BIGSERIAL PRIMARY KEY,
@@ -129,19 +128,21 @@ CREATE TABLE IF NOT EXISTS ride_bookings (
 ALTER TABLE ride_bookings ENABLE ROW LEVEL SECURITY;
 
 -- Riders can insert their own bookings
-CREATE POLICY IF NOT EXISTS "Riders can insert own bookings"
+CREATE POLICY "Riders can insert own bookings"
     ON ride_bookings FOR INSERT
-    WITH CHECK (auth.uid() = rider_id);
+    WITH CHECK ((SELECT auth.uid()) = rider_id);
 
 -- Riders can view bookings for rides (for now allow all authenticated users)
-CREATE POLICY IF NOT EXISTS "Authenticated can view bookings"
+CREATE POLICY "Authenticated can view bookings"
     ON ride_bookings FOR SELECT
-    USING (auth.role() = 'authenticated');
+    USING ((auth.jwt() ->> 'role') = 'authenticated');
 
 -- Riders can update/delete their own booking
-CREATE POLICY IF NOT EXISTS "Riders manage own bookings"
-    ON ride_bookings FOR UPDATE USING (auth.uid() = rider_id)
-    WITH CHECK (auth.uid() = rider_id);
+CREATE POLICY "Riders manage own bookings"
+    ON ride_bookings FOR UPDATE
+    USING ((SELECT auth.uid()) = rider_id)
+    WITH CHECK ((SELECT auth.uid()) = rider_id);
 
-CREATE POLICY IF NOT EXISTS "Riders delete own bookings"
-    ON ride_bookings FOR DELETE USING (auth.uid() = rider_id);
+CREATE POLICY "Riders delete own bookings"
+    ON ride_bookings FOR DELETE
+    USING ((SELECT auth.uid()) = rider_id);

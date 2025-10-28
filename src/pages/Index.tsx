@@ -54,7 +54,7 @@ const Index = () => {
       <section className="bg-gradient-hero py-20 px-6">
         <div className="max-w-7xl mx-auto text-center">
           <h1 className="text-5xl md:text-6xl font-bold text-secondary mb-6">
-            Ride with Fellow <span className="text-primary">Boilermakers</span>
+            Ride with Fellow Boilermakers
           </h1>
           <p className="text-xl text-secondary/80 mb-8 max-w-3xl mx-auto">
             Connect with Purdue students for safe, convenient, and affordable rides around campus and beyond. 

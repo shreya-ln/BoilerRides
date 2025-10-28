@@ -8,12 +8,14 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
 import { useToast } from '@/components/ui/use-toast'
 import { format } from 'date-fns'
-import { CalendarIcon, Car, MapPin, Users, DollarSign } from 'lucide-react'
-import { loadGoogleMaps } from '@/lib/utils'
+import { CalendarIcon, Car, MapPin, Users, DollarSign, Trash2 } from 'lucide-react'
 import { ridesService, CreateRideInput } from '@/lib/ridesService'
 import { useAuth } from '@/hooks/useAuth'
+import { APIProvider } from '@vis.gl/react-google-maps'
+import PlaceAutocomplete from '@/components/PlaceAutocomplete'
 
 // Form default popular presets for dates (e.g., next weekend)
 function getPopularDatePresets(): { label: string; value: Date }[] {
@@ -57,10 +59,6 @@ const CreateRide = () => {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loadingRide, setLoadingRide] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)
-  const [autocompleteElements, setAutocompleteElements] = useState<{
-    origin: any
-    destination: any
-  }>({ origin: null, destination: null })
 
   useEffect(() => {
     const loadRide = async () => {
@@ -85,102 +83,19 @@ const CreateRide = () => {
     loadRide()
   }, [editingId, toast])
 
-  // Initialize Google Places Autocomplete for origin/destination using PlaceAutocompleteElement
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string
-        if (!apiKey) return
-        await loadGoogleMaps(apiKey)
-        const g = (window as any).google
-        if (!g?.maps?.places?.PlaceAutocompleteElement) return
-        
-        const originContainer = document.getElementById('origin-container')
-        const destContainer = document.getElementById('destination-container')
-        
-        // Clean up existing elements
-        if (autocompleteElements.origin) {
-          autocompleteElements.origin.remove()
-        }
-        if (autocompleteElements.destination) {
-          autocompleteElements.destination.remove()
-        }
-        
-        if (originContainer) {
-          const ac1 = new g.maps.places.PlaceAutocompleteElement({
-            types: ['geocode'],
-            componentRestrictions: { country: 'us' }
-          })
-          
-          // Style the autocomplete element to match our design
-          ac1.style.cssText = `
-            width: 100%;
-            height: 40px;
-            padding: 8px 12px 8px 36px;
-            border: 1px solid hsl(var(--border));
-            border-radius: 6px;
-            background-color: hsl(var(--background));
-            color: hsl(var(--foreground));
-            font-size: 14px;
-            outline: none;
-          `
-          ac1.setAttribute('placeholder', 'e.g., West Lafayette')
-          
-          // Set up event listener for place selection
-          ac1.addEventListener('gmp-placeselect', (event: any) => {
-            const place = event.place
-            if (place?.formattedAddress) setOrigin(place.formattedAddress)
-          })
-          
-          originContainer.appendChild(ac1)
-          setAutocompleteElements(prev => ({ ...prev, origin: ac1 }))
-        }
-        
-        if (destContainer) {
-          const ac2 = new g.maps.places.PlaceAutocompleteElement({
-            types: ['geocode'],
-            componentRestrictions: { country: 'us' }
-          })
-          
-          // Style the autocomplete element to match our design
-          ac2.style.cssText = `
-            width: 100%;
-            height: 40px;
-            padding: 8px 12px 8px 36px;
-            border: 1px solid hsl(var(--border));
-            border-radius: 6px;
-            background-color: hsl(var(--background));
-            color: hsl(var(--foreground));
-            font-size: 14px;
-            outline: none;
-          `
-          ac2.setAttribute('placeholder', 'e.g., Indianapolis')
-          
-          // Set up event listener for place selection
-          ac2.addEventListener('gmp-placeselect', (event: any) => {
-            const place = event.place
-            if (place?.formattedAddress) setDestination(place.formattedAddress)
-          })
-          
-          destContainer.appendChild(ac2)
-          setAutocompleteElements(prev => ({ ...prev, destination: ac2 }))
-        }
-      } catch (_e) {
-        // fail silently if maps unavailable
-      }
+  // Handle place selection for origin
+  const handleOriginSelect = (place: google.maps.places.PlaceResult | null) => {
+    if (place?.formatted_address) {
+      setOrigin(place.formatted_address)
     }
-    init()
-    
-    // Cleanup function
-    return () => {
-      if (autocompleteElements.origin) {
-        autocompleteElements.origin.remove()
-      }
-      if (autocompleteElements.destination) {
-        autocompleteElements.destination.remove()
-      }
+  }
+
+  // Handle place selection for destination
+  const handleDestinationSelect = (place: google.maps.places.PlaceResult | null) => {
+    if (place?.formatted_address) {
+      setDestination(place.formatted_address)
     }
-  }, [])
+  }
 
   // Validate form fields
   const validate = (): string[] => {
@@ -262,60 +177,69 @@ const CreateRide = () => {
     { label: 'Indianapolis', value: 'Indianapolis, IN' },
   ]
 
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string
+
   return (
-    <div className="min-h-screen bg-background">
-      <Navigation isLoggedIn={true} onSignOut={() => navigate('/')} />
+    <APIProvider apiKey={apiKey} solutionChannel='GMP_devsite_samples_v3_rgmautocomplete'>
+      <div className="min-h-screen bg-background">
+        <Navigation isLoggedIn={true} onSignOut={() => navigate('/')} />
 
-      <div className="max-w-3xl mx-auto px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-secondary mb-1">Post a Ride</h1>
-          <p className="text-muted-foreground">Share your trip with fellow Boilermakers</p>
-        </div>
+        <div className="max-w-3xl mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold text-secondary mb-1">Post a Ride</h1>
+            <p className="text-muted-foreground">Share your trip with fellow Boilermakers</p>
+          </div>
 
-        <Card className="shadow-purdue">
-          <CardHeader>
-            <CardTitle className="text-secondary">{editingId ? 'Edit Ride' : 'Ride Details'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={onSubmit} className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="origin">From<span className="text-destructive"> *</span></Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
-                    <div 
-                      id="origin-container" 
-                      className={`${fieldErrors.origin ? 'border-destructive' : ''}`}
-                    />
+          <Card className="shadow-purdue">
+            <CardHeader>
+              <CardTitle className="text-secondary">{editingId ? 'Edit Ride' : 'Ride Details'}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={onSubmit} className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="origin">From<span className="text-destructive"> *</span></Label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
+                      <PlaceAutocomplete
+                        onPlaceSelect={handleOriginSelect}
+                        placeholder="e.g., West Lafayette"
+                        value={origin}
+                        onChange={setOrigin}
+                        className={`${fieldErrors.origin ? 'border-destructive' : ''}`}
+                      />
+                    </div>
+                    {fieldErrors.origin && <p className="text-sm text-destructive">{fieldErrors.origin}</p>}
+                    <div className="flex gap-2 flex-wrap">
+                      {locationQuickPicks.map((p) => (
+                        <Button key={`from-${p.label}`} type="button" variant="secondary" size="sm" onClick={() => setOrigin(p.value)}>
+                          {p.label}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  {fieldErrors.origin && <p className="text-sm text-destructive">{fieldErrors.origin}</p>}
-                  <div className="flex gap-2 flex-wrap">
-                    {locationQuickPicks.map((p) => (
-                      <Button key={`from-${p.label}`} type="button" variant="secondary" size="sm" onClick={() => setOrigin(p.value)}>
-                        {p.label}
-                      </Button>
-                    ))}
+                  <div className="space-y-2">
+                    <Label htmlFor="destination">To<span className="text-destructive"> *</span></Label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
+                      <PlaceAutocomplete
+                        onPlaceSelect={handleDestinationSelect}
+                        placeholder="e.g., Indianapolis"
+                        value={destination}
+                        onChange={setDestination}
+                        className={`${fieldErrors.destination ? 'border-destructive' : ''}`}
+                      />
+                    </div>
+                    {fieldErrors.destination && <p className="text-sm text-destructive">{fieldErrors.destination}</p>}
+                    <div className="flex gap-2 flex-wrap">
+                      {locationQuickPicks.map((p) => (
+                        <Button key={`to-${p.label}`} type="button" variant="secondary" size="sm" onClick={() => setDestination(p.value)}>
+                          {p.label}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="destination">To<span className="text-destructive"> *</span></Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
-                    <div 
-                      id="destination-container" 
-                      className={`${fieldErrors.destination ? 'border-destructive' : ''}`}
-                    />
-                  </div>
-                  {fieldErrors.destination && <p className="text-sm text-destructive">{fieldErrors.destination}</p>}
-                  <div className="flex gap-2 flex-wrap">
-                    {locationQuickPicks.map((p) => (
-                      <Button key={`to-${p.label}`} type="button" variant="secondary" size="sm" onClick={() => setDestination(p.value)}>
-                        {p.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
 
               {/* Date section (standalone to prevent clipping into Time) */}
               <div className="space-y-2">
@@ -414,17 +338,62 @@ const CreateRide = () => {
                 <Textarea id="carNotes" rows={4} placeholder="e.g., One suitcase per rider, pickup at PMU" value={carNotes} onChange={(e) => setCarNotes(e.target.value)} />
               </div>
 
-              <div className="flex gap-3 justify-end">
-                <Button type="button" variant="outline" onClick={() => navigate('/rides')}>Cancel</Button>
-                <Button type="submit" className="bg-gradient-primary hover:shadow-glow" disabled={submitting || loadingRide}>
-                  {submitting ? (editingId ? 'Saving…' : 'Posting…') : (editingId ? 'Save Changes' : 'Create Ride')}
-                </Button>
+              <div className="flex gap-3 justify-between">
+                {editingId && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button type="button" variant="destructive" disabled={submitting || loadingRide}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete Ride
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this ride?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This action cannot be undone. All riders who booked this ride will be notified and their bookings will be removed.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={async () => {
+                          const { error, affectedRiders } = await ridesService.deleteRideWithBookings(editingId)
+                          if (error) {
+                            console.error('Delete failed', error)
+                            toast({
+                              title: "Error",
+                              description: "Failed to delete ride. Please try again.",
+                              variant: "destructive"
+                            })
+                            return
+                          }
+                          toast({
+                            title: "Ride deleted",
+                            description: affectedRiders.length > 0 
+                              ? `Ride deleted. ${affectedRiders.length} rider(s) were notified.`
+                              : "Ride deleted successfully."
+                          })
+                          navigate('/rides')
+                        }}>
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                <div className="flex gap-3 ml-auto">
+                  <Button type="button" variant="outline" onClick={() => navigate('/rides')}>Cancel</Button>
+                  <Button type="submit" className="bg-gradient-primary hover:shadow-glow" disabled={submitting || loadingRide}>
+                    {submitting ? (editingId ? 'Saving…' : 'Posting…') : (editingId ? 'Save Changes' : 'Create Ride')}
+                  </Button>
+                </div>
               </div>
             </form>
           </CardContent>
         </Card>
       </div>
     </div>
+    </APIProvider>
   )
 }
 

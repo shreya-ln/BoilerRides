@@ -6,18 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon } from "lucide-react";
+import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon, X } from "lucide-react";
 
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 
 import Navigation from "@/components/Navigation";
+import RideDetailsDialog from "@/components/RideDetailsDialog";
 import { useNavigate } from "react-router-dom";
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth'
 import { ridesService } from '@/lib/ridesService'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
+import { toast } from '@/hooks/use-toast'
 
 const Rides = () => {
   const navigate = useNavigate();
@@ -34,6 +36,7 @@ const Rides = () => {
 
   const [availableRides, setAvailableRides]  = useState([]);
   const [myRidesState, setMyRidesState] = useState([] as any[])
+  const [myBookings, setMyBookings] = useState([] as any[])
 
   const myRides = myRidesState
 
@@ -99,6 +102,26 @@ const Rides = () => {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [user?.id])
 
+  useEffect(() => {
+    const fetchMyBookings = async () => {
+      if (!user?.id) return
+      const { data, error } = await ridesService.getMyBookings(user.id)
+      if (error) {
+        console.error('Error fetching my bookings:', error)
+        return
+      }
+      setMyBookings(data || [])
+    }
+    fetchMyBookings()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchMyBookings()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [user?.id])
+
   const searchRides = async() => {
     let query = supabase.from("rides").select("*");
     if (searchQuery) {
@@ -139,8 +162,9 @@ const Rides = () => {
         </div>
 
         <Tabs defaultValue="find" className="space-y-8">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsList className="grid w-full grid-cols-3 max-w-3xl">
             <TabsTrigger value="find">Find Rides</TabsTrigger>
+            <TabsTrigger value="bookings">My Bookings</TabsTrigger>
             <TabsTrigger value="offer">My Rides</TabsTrigger>
           </TabsList>
 
@@ -289,6 +313,14 @@ const Rides = () => {
                         )}
                         {user?.id === ride.driver_id && (
                           <div className="flex gap-2">
+                            <RideDetailsDialog 
+                              ride={ride}
+                              trigger={
+                                <Button variant={user?.id === ride.driver_id ? 'secondary' : 'outline'} className={`${user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}`}>
+                                  View
+                                </Button>
+                              }
+                            />
                             <Button variant={user?.id === ride.driver_id ? 'secondary' : 'outline'} className={`${user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}`} onClick={() => navigate(`/rides/create?id=${ride.id}`)}>Edit</Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -297,15 +329,29 @@ const Rides = () => {
                               <AlertDialogContent>
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete this ride?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This action cannot be undone. All riders who booked this ride will be notified and their bookings will be removed.
+                                  </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction onClick={async () => {
-                                    const { error } = await ridesService.deleteRide(ride.id)
+                                    const { error, affectedRiders } = await ridesService.deleteRideWithBookings(ride.id)
                                     if (error) {
                                       console.error('Delete failed', error)
+                                      toast({
+                                        title: "Error",
+                                        description: "Failed to delete ride. Please try again.",
+                                        variant: "destructive"
+                                      })
                                       return
                                     }
+                                    toast({
+                                      title: "Ride deleted",
+                                      description: affectedRiders.length > 0 
+                                        ? `Ride deleted. ${affectedRiders.length} rider(s) were notified.`
+                                        : "Ride deleted successfully."
+                                    })
                                     // refresh
                                     const { data } = await ridesService.listRides()
                                     const filtered = (data || []).filter((r: any) => showOwnRides || r.driver_id !== user?.id)
@@ -321,6 +367,109 @@ const Rides = () => {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="bookings" className="space-y-6">
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-secondary">Your Booked Rides</h3>
+              {myBookings.length === 0 && (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Users className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-muted-foreground">You haven't booked any rides yet</p>
+                  </CardContent>
+                </Card>
+              )}
+              {myBookings.map((booking: any) => {
+                const ride = booking.rides
+                if (!ride) return null
+                return (
+                  <Card key={booking.id} className="hover:shadow-purdue transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <MapPin className="h-4 w-4 text-primary" />
+                            <span className="font-semibold text-secondary">
+                              {ride.special_moment ? <span className="text-primary">({ride.special_moment}) </span> : ''}{ride.origin} → {ride.destination}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center space-x-4 text-sm text-muted-foreground mb-3">
+                            <div className="flex items-center space-x-1">
+                              <Clock className="h-4 w-4" />
+                              <span>{format(parseISO(ride.ride_date), 'EEE, MMM d')} at {format(new Date(`1970-01-01T${ride.ride_time}`), 'h:mm a')}</span>
+                            </div>
+                            {ride.car_type && (
+                              <div className="flex items-center space-x-1">
+                                <Car className="h-4 w-4" />
+                                <span>{ride.car_type}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center space-x-4">
+                            <span className="text-sm">Driver: {ride.profiles ? `${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`.trim() || '—' : '—'}</span>
+                            <div className="flex items-center space-x-1 text-sm">
+                              <Users className="h-4 w-4" />
+                              <span>{booking.seats} {booking.seats === 1 ? 'seat' : 'seats'} booked</span>
+                            </div>
+                            <Badge variant="outline">You're riding</Badge>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <div className="text-right">
+                            <div className="text-2xl font-bold text-primary">${(booking.seats * ride.price).toFixed(2)}</div>
+                            <div className="text-xs text-muted-foreground">total cost</div>
+                          </div>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm">
+                                <X className="h-4 w-4 mr-2" />
+                                Cancel Booking
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                                <AlertDialogAction onClick={async () => {
+                                  const { error } = await ridesService.cancelBooking(booking.id, ride.id, booking.seats)
+                                  if (error) {
+                                    console.error('Cancel failed', error)
+                                    toast({
+                                      title: "Error",
+                                      description: "Failed to cancel booking. Please try again.",
+                                      variant: "destructive"
+                                    })
+                                    return
+                                  }
+                                  toast({
+                                    title: "Booking cancelled",
+                                    description: "Your booking has been cancelled successfully."
+                                  })
+                                  // Refresh bookings
+                                  const { data } = await ridesService.getMyBookings(user?.id || '')
+                                  setMyBookings(data || [])
+                                }}>
+                                  Cancel Booking
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           </TabsContent>
 
@@ -379,9 +528,62 @@ const Rides = () => {
                           <div className="text-xs text-muted-foreground">estimated total</div>
                         </div>
                         <div className="flex flex-col space-y-2">
+                          <RideDetailsDialog ride={ride} />
                           <Button variant="outline" size="sm" onClick={() => navigate(`/rides/create?id=${ride.id}`)}>
-                            View / Edit
+                            Edit
                           </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm">
+                                Delete
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete this ride?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This action cannot be undone. All riders who booked this ride will be notified and their bookings will be removed.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={async () => {
+                                  const { error, affectedRiders } = await ridesService.deleteRideWithBookings(ride.id)
+                                  if (error) {
+                                    console.error('Delete failed', error)
+                                    toast({
+                                      title: "Error",
+                                      description: "Failed to delete ride. Please try again.",
+                                      variant: "destructive"
+                                    })
+                                    return
+                                  }
+                                  toast({
+                                    title: "Ride deleted",
+                                    description: affectedRiders.length > 0 
+                                      ? `Ride deleted. ${affectedRiders.length} rider(s) were notified.`
+                                      : "Ride deleted successfully."
+                                  })
+                                  // Refresh my rides
+                                  const { data } = await ridesService.listMyRides(user?.id || '')
+                                  const mapped = (data || []).map((r: any) => ({
+                                    id: r.id,
+                                    from: r.origin,
+                                    to: r.destination,
+                                    date: r.ride_date,
+                                    time: r.ride_time,
+                                    passengers: Math.max(0, (Number(r.total_seats) - Number(r.seats_available))),
+                                    totalSeats: r.total_seats,
+                                    price: Number(r.price || 0),
+                                    specialMoment: r.special_moment || null,
+                                  }))
+                                  setMyRidesState(mapped)
+                                }}>
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </div>
                     </div>

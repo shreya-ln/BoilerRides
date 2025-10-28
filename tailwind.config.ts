@@ -57,6 +57,11 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        purdue: {
+          gold: "hsl(var(--purdue-gold))",
+          supporting: "hsl(var(--purdue-supporting))",
+          black: "hsl(var(--secondary))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

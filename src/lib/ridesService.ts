@@ -131,6 +131,92 @@ export const ridesService = {
       .eq('rider_id', riderId)
     return { data: data ?? [], error }
   },
+
+  // Fetch all riders (bookings) for a specific ride
+  async getRideBookings(rideId: number) {
+    const { data, error } = await supabase
+      .from('ride_bookings')
+      .select('id, seats, created_at, rider_id, profiles:rider_id(id, first_name, last_name, avatar_url, email)')
+      .eq('ride_id', rideId)
+      .order('created_at', { ascending: true })
+    
+    return { data: data ?? [], error }
+  },
+
+  // Fetch all bookings for a specific rider
+  async getMyBookings(riderId: string) {
+    const { data, error } = await supabase
+      .from('ride_bookings')
+      .select('id, seats, created_at, ride_id, rides:ride_id(*,profiles:driver_id(first_name,last_name,avatar_url,email))')
+      .eq('rider_id', riderId)
+      .order('created_at', { ascending: false })
+    
+    return { data: data ?? [], error }
+  },
+
+  // Cancel a booking (rider drops from a ride)
+  async cancelBooking(bookingId: number, rideId: number, seatsToFree: number) {
+    // First get the current ride to know seats available
+    const { data: ride, error: fetchError } = await supabase
+      .from('rides')
+      .select('seats_available')
+      .eq('id', rideId)
+      .single()
+
+    if (fetchError) {
+      return { error: fetchError }
+    }
+
+    // Delete the booking
+    const { error: deleteError } = await supabase
+      .from('ride_bookings')
+      .delete()
+      .eq('id', bookingId)
+
+    if (deleteError) {
+      return { error: deleteError }
+    }
+
+    // Update the ride to increase seats_available
+    const { error: updateError } = await supabase
+      .from('rides')
+      .update({ 
+        seats_available: (ride.seats_available || 0) + seatsToFree
+      })
+      .eq('id', rideId)
+
+    return { error: updateError }
+  },
+
+  // Remove a rider from a ride (driver removes specific rider)
+  async removeRiderFromRide(bookingId: number, rideId: number, seatsToFree: number) {
+    // Same as cancelBooking but semantically different (driver-initiated)
+    return this.cancelBooking(bookingId, rideId, seatsToFree)
+  },
+
+  // Delete ride with all bookings (driver deletes ride)
+  async deleteRideWithBookings(rideId: number) {
+    // First fetch all bookings to get count for notification purposes
+    const { data: bookings, error: fetchError } = await supabase
+      .from('ride_bookings')
+      .select('id, seats, rider_id, profiles:rider_id(first_name, last_name, email)')
+      .eq('ride_id', rideId)
+
+    if (fetchError) {
+      return { error: fetchError, affectedRiders: [] }
+    }
+
+    // Delete the ride (CASCADE will handle bookings automatically)
+    const { error: deleteError } = await supabase
+      .from('rides')
+      .delete()
+      .eq('id', rideId)
+
+    return { 
+      error: deleteError, 
+      affectedRiders: bookings || [] 
+    }
+  },
 }
 
 
