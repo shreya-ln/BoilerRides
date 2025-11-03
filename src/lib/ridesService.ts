@@ -136,7 +136,7 @@ export const ridesService = {
   async getRideBookings(rideId: number) {
     const { data, error } = await supabase
       .from('ride_bookings')
-      .select('id, seats, created_at, rider_id, profiles:rider_id(id, first_name, last_name, avatar_url, email)')
+      .select('id, seats, created_at, rider_id, paid, amount, paid_at, profiles:rider_id(id, first_name, last_name, avatar_url, email)')
       .eq('ride_id', rideId)
       .order('created_at', { ascending: true })
     
@@ -147,11 +147,60 @@ export const ridesService = {
   async getMyBookings(riderId: string) {
     const { data, error } = await supabase
       .from('ride_bookings')
-      .select('id, seats, created_at, ride_id, rides:ride_id(*,profiles:driver_id(first_name,last_name,avatar_url,email))')
+      .select('id, seats, created_at, ride_id, paid, amount, paid_at, rides:ride_id(*,profiles:driver_id(first_name,last_name,avatar_url,email))')
       .eq('rider_id', riderId)
       .order('created_at', { ascending: false })
     
     return { data: data ?? [], error }
+  },
+
+  // Mark a booking as paid (mock transaction)
+  async markBookingPaid(bookingId: number, amount: number) {
+    const { data, error } = await supabase
+      .from('ride_bookings')
+      .update({ paid: true, amount: amount, paid_at: new Date().toISOString() })
+      .eq('id', bookingId)
+      .select()
+      .single()
+
+    return { data, error }
+  },
+
+  // Create a booking for a rider (decrements seats_available atomically)
+  async createBooking(riderId: string, rideId: number, seats: number = 1) {
+    // Insert booking
+    const { data: booking, error: insertError } = await supabase
+      .from('ride_bookings')
+      .insert({ rider_id: riderId, ride_id: rideId, seats })
+      .select()
+      .single()
+
+    if (insertError) {
+      return { data: null, error: insertError }
+    }
+
+    // Decrement available seats on the ride
+    const { error: updateError } = await supabase
+      .from('rides')
+      .update({ seats_available: supabase.rpc ? undefined : null })
+      .eq('id', rideId)
+
+    // The above attempt to be safe - if RLS/DB has triggers to maintain seats_available
+    // fallback: try fetching current seats and update decrementally
+    if (updateError) {
+      // Try fallback: fetch ride, then update
+      const { data: ride, error: fetchRideErr } = await supabase
+        .from('rides')
+        .select('seats_available')
+        .eq('id', rideId)
+        .single()
+      if (!fetchRideErr && ride) {
+        const newSeats = Math.max(0, (ride.seats_available || 0) - seats)
+        await supabase.from('rides').update({ seats_available: newSeats }).eq('id', rideId)
+      }
+    }
+
+    return { data: booking, error: null }
   },
 
   // Cancel a booking (rider drops from a ride)

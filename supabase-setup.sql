@@ -137,7 +137,6 @@ CREATE POLICY "Authenticated can view bookings"
     ON ride_bookings FOR SELECT
     USING ((auth.jwt() ->> 'role') = 'authenticated');
 
--- Riders can update/delete their own booking
 CREATE POLICY "Riders manage own bookings"
     ON ride_bookings FOR UPDATE
     USING ((SELECT auth.uid()) = rider_id)
@@ -146,3 +145,13 @@ CREATE POLICY "Riders manage own bookings"
 CREATE POLICY "Riders delete own bookings"
     ON ride_bookings FOR DELETE
     USING ((SELECT auth.uid()) = rider_id);
+
+-- Migration: add payment fields to ride_bookings (mock payments)
+-- Run this in Supabase SQL editor or via psql against your database.
+ALTER TABLE IF EXISTS public.ride_bookings
+  ADD COLUMN IF NOT EXISTS paid boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS amount numeric(10,2),
+  ADD COLUMN IF NOT EXISTS paid_at timestamptz;
+
+-- Optional: grant select/update privileges to authenticated role if using RLS policies
+-- NOTE: Ensure RLS policies allow the authenticated user to update their own bookings if required.

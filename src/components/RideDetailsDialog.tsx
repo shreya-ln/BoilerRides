@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
 import { MapPin, Clock, Users, Car, DollarSign, Eye, AlertCircle, X } from 'lucide-react'
 import { ridesService } from '@/lib/ridesService'
+import { supabase } from '@/lib/supabase'
 import { format, parseISO } from 'date-fns'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/hooks/use-toast'
@@ -22,13 +23,17 @@ interface RiderInfo {
   seats: number
   created_at: string
   rider_id: string
+  // Supabase may return `profiles` as an object or as a single-element array depending on select
   profiles: {
-    id: string
-    first_name: string | null
-    last_name: string | null
-    avatar_url: string | null
-    email: string | null
-  }
+    id?: string
+    first_name?: string | null
+    last_name?: string | null
+    avatar_url?: string | null
+    email?: string | null
+  } | any
+  paid?: boolean
+  amount?: number | null
+  paid_at?: string | null
 }
 
 /**
@@ -64,7 +69,12 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
         return
       }
       
-      setRiders(data as RiderInfo[])
+      // Normalize profiles shape: if profiles is an array, take the first element
+      const normalized = (data || []).map((d: any) => ({
+        ...d,
+        profiles: Array.isArray(d.profiles) ? d.profiles[0] : d.profiles,
+      }))
+      setRiders(normalized as RiderInfo[])
     } catch (err) {
       console.error('Unexpected error fetching riders:', err)
       setError('An unexpected error occurred. Please try again.')
@@ -82,6 +92,31 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
     }
   }, [open, ride?.id])
 
+  // Subscribe to realtime updates for ride_bookings so driver sees payment status changes
+  useEffect(() => {
+    if (!ride?.id || !open) return
+
+    const channel = supabase
+      .channel(`ride_bookings_${ride.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ride_bookings', filter: `ride_id=eq.${ride.id}` },
+        (payload) => {
+          // When booking is inserted/updated/deleted, refresh the riders
+          fetchRiders()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      try {
+        channel.unsubscribe()
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }, [ride?.id, open])
+
   /**
    * Get initials from a name for avatar fallback
    */
@@ -90,6 +125,14 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
     const last = lastName?.charAt(0) || ''
     return (first + last).toUpperCase() || '?'
   }
+
+  // Cost split calculations
+  const totalCost = (ride.price || 0) * (riders.reduce((acc, r) => acc + Number(r.seats || 0), 0) || 0)
+  const activeRidersCount = Math.max(1, riders.reduce((acc, r) => acc + Number(r.seats || 0), 0))
+  const perPersonRaw = totalCost / activeRidersCount
+  const perPerson = Number(perPersonRaw.toFixed(2))
+  const currentUserBooking = riders.find((r) => r.rider_id === user?.id)
+  const yourShare = currentUserBooking ? Number(((perPersonRaw) * (currentUserBooking.seats || 1)).toFixed(2)) : perPerson
 
   /**
    * Format full name from first and last name
@@ -206,6 +249,25 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
             </CardContent>
           </Card>
 
+          {/* Cost split summary */}
+          <div>
+            <Card>
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-muted-foreground">Total Cost</div>
+                  <div className="text-xl font-bold text-primary">${totalCost.toFixed(2)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-muted-foreground">Your Share</div>
+                  <div className="text-lg font-semibold">
+                    ${yourShare.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Split {activeRidersCount} ways</div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Signed Up Riders Section */}
           <div>
             <h3 className="text-lg font-semibold mb-4 flex items-center">
@@ -266,9 +328,17 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                         </div>
 
                         {/* Seats Badge */}
-                        <Badge variant="secondary">
-                          {rider.seats} {rider.seats === 1 ? 'seat' : 'seats'}
-                        </Badge>
+                        <div className="flex flex-col items-end">
+                          <Badge variant="secondary" className="mb-1">
+                            {rider.seats} {rider.seats === 1 ? 'seat' : 'seats'}
+                          </Badge>
+                          {/* Paid / Pending */}
+                          {rider.paid ? (
+                            <Badge className="bg-emerald-600 text-white">Paid</Badge>
+                          ) : (
+                            <Badge className="bg-red-600 text-white">Pending</Badge>
+                          )}
+                        </div>
 
                         {/* Remove Button (Driver Only) */}
                         {isDriver && (
@@ -290,7 +360,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                                 <AlertDialogAction 
                                   onClick={() => handleRemoveRider(
-                                    rider.id, 
+                                    Number(rider.id), 
                                     getFullName(rider.profiles.first_name, rider.profiles.last_name), 
                                     rider.seats
                                   )}

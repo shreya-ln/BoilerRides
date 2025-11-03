@@ -1,84 +1,71 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label as UILabel } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon, X } from "lucide-react";
+import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon, X } from 'lucide-react'
+import { Calendar } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { format, parseISO } from 'date-fns'
 
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { format, parseISO } from "date-fns";
-
-import Navigation from "@/components/Navigation";
-import RideDetailsDialog from "@/components/RideDetailsDialog";
-import { useNavigate } from "react-router-dom";
-import { supabase } from '@/lib/supabase';
+import Navigation from '@/components/Navigation'
+import RideDetailsDialog from '@/components/RideDetailsDialog'
+import PaymentModal from '@/components/PaymentModal'
+import PaymentSuccessModal from '@/components/PaymentSuccessModal'
+import { useNavigate } from 'react-router-dom'
+import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { ridesService } from '@/lib/ridesService'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
 
 const Rides = () => {
-  const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate()
   const { user } = useAuth()
 
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedTime, setSelectedTime] = useState("");
-  const [showOwnRides, setShowOwnRides] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedDate, setSelectedDate] = useState<any>(null)
+  const [selectedTime, setSelectedTime] = useState('')
+  const [showOwnRides, setShowOwnRides] = useState(false)
 
-  const handleSignOut = () => {
-    navigate("/");
-  };
-
-  const [availableRides, setAvailableRides]  = useState([]);
-  const [myRidesState, setMyRidesState] = useState([] as any[])
-  const [myBookings, setMyBookings] = useState([] as any[])
-
-  const myRides = myRidesState
+  const [availableRides, setAvailableRides] = useState<any[]>([])
+  const [myRidesState, setMyRidesState] = useState<any[]>([])
+  const [myBookings, setMyBookings] = useState<any[]>([])
+  const [successOpen, setSuccessOpen] = useState(false)
+  const [successAmount, setSuccessAmount] = useState(0)
+  const [successTripName, setSuccessTripName] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const fetchRides = async () => {
       try {
         const { data, error } = await ridesService.listRides()
-        if (error) {
-          console.error("Error fetching rides:", error);
-          return;
-        }
+        if (error) return console.error('Error fetching rides:', error)
         const filtered = (data || []).filter((r: any) => showOwnRides || r.driver_id !== user?.id)
         const sorted = filtered.sort((a: any, b: any) => {
           const aOwn = a.driver_id === user?.id ? 1 : 0
           const bOwn = b.driver_id === user?.id ? 1 : 0
           return bOwn - aOwn
         })
-        setAvailableRides(sorted);
+        setAvailableRides(sorted)
       } catch (err) {
-        console.error("Unexpected error:", err);
+        console.error(err)
       }
-    };
+    }
 
-    fetchRides();
-
+    fetchRides()
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        fetchRides();
-      }
+      if (document.visibilityState === 'visible') fetchRides()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [showOwnRides, user?.id]);
+  }, [showOwnRides, user?.id])
 
   useEffect(() => {
     const fetchMyRides = async () => {
       if (!user?.id) return
       const { data, error } = await ridesService.listMyRides(user.id)
-      if (error) {
-        console.error('Error fetching my rides:', error)
-        return
-      }
+      if (error) return console.error('Error fetching my rides:', error)
       const mapped = (data || []).map((r: any) => ({
         id: r.id,
         from: r.origin,
@@ -92,11 +79,10 @@ const Rides = () => {
       }))
       setMyRidesState(mapped)
     }
+
     fetchMyRides()
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        fetchMyRides()
-      }
+      if (document.visibilityState === 'visible') fetchMyRides()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
@@ -106,55 +92,32 @@ const Rides = () => {
     const fetchMyBookings = async () => {
       if (!user?.id) return
       const { data, error } = await ridesService.getMyBookings(user.id)
-      if (error) {
-        console.error('Error fetching my bookings:', error)
-        return
-      }
+      if (error) return console.error('Error fetching my bookings:', error)
       setMyBookings(data || [])
     }
     fetchMyBookings()
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        fetchMyBookings()
-      }
+      if (document.visibilityState === 'visible') fetchMyBookings()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [user?.id])
 
-  const searchRides = async() => {
-    let query = supabase.from("rides").select("*");
-    if (searchQuery) {
-      // query = query.or(`to.ilike.%${searchQuery}%,from.ilike.%${searchQuery}%`);
-      query = query.ilike("destination", `%${searchQuery}%`);
-    }
-    if (selectedDate) {
-      const formattedDate = format(selectedDate, "yyyy-MM-dd");
-      query = query.eq("ride_date", formattedDate);
-    }
-    if (selectedTime) {
-      query = query.lte("ride_time", selectedTime);
-    }
-    const { data, error } = await query;
-
-    if (error) {
-      console.error("Error fetching rides:", error);
-      return;
-    }
-
+  const searchRides = async () => {
+    let query: any = supabase.from('rides').select('*')
+    if (searchQuery) query = query.ilike('destination', `%${searchQuery}%`)
+    if (selectedDate) query = query.eq('ride_date', format(selectedDate, 'yyyy-MM-dd'))
+    if (selectedTime) query = query.lte('ride_time', selectedTime)
+    const { data, error } = await query
+    if (error) return console.error('Error fetching rides:', error)
     const filtered = (data || []).filter((r: any) => showOwnRides || r.driver_id !== user?.id)
-    const sorted = filtered.sort((a: any, b: any) => {
-      const aOwn = a.driver_id === user?.id ? 1 : 0
-      const bOwn = b.driver_id === user?.id ? 1 : 0
-      return bOwn - aOwn
-    })
-    setAvailableRides(sorted);
-  };
+    setAvailableRides(filtered)
+  }
 
   return (
     <div className="min-h-screen bg-background">
-      <Navigation isLoggedIn={true} onSignOut={handleSignOut} />
-      
+      <Navigation isLoggedIn={true} onSignOut={() => { window.location.href = '/' }} />
+
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-secondary mb-2">Rides</h1>
@@ -169,98 +132,39 @@ const Rides = () => {
           </TabsList>
 
           <TabsContent value="find" className="space-y-6">
-            {/* Search Bar */}
             <Card>
               <CardContent className="p-6">
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    searchRides();
-                  }}
-                  className="flex flex-col md:flex-row gap-4"
-                >
+                <form onSubmit={(e) => { e.preventDefault(); searchRides() }} className="flex flex-col md:flex-row gap-4">
                   <div className="flex-1 relative">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Where do you want to go?"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
-                    />
+                    <Input placeholder="Where do you want to go?" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
                   </div>
 
-                  {/* date picker */}
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="justify-start text-left font-normal w-full md:w-[200px]"
-                      >
+                      <Button variant="outline" className="justify-start text-left font-normal w-full md:w-[200px]">
                         <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? format(selectedDate, "PPP") : "Select date"}
+                        {selectedDate ? format(selectedDate, 'PPP') : 'Select date'}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={setSelectedDate}
-                        initialFocus
-                      />
+                      <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
                     </PopoverContent>
                   </Popover>
-                  {selectedDate && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setSelectedDate(null)}
-                      title="Clear date"
-                    >
-                      ✕
-                    </Button>
-                  )}
 
-                  {/* time picker */}
                   <div className="relative md:w-[150px]">
                     <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="time"
-                      value={selectedTime}
-                      onChange={(e) => setSelectedTime(e.target.value)}
-                      className="pl-10"
-                    />
+                    <Input type="time" value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} className="pl-10" />
                   </div>
-                  {selectedTime && (
-                    <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setSelectedTime("")}
-                    title="Clear time"
-                    >
-                    ✕
-                    </Button>
-                  )}
 
-                  {/*  submit button */}
-                  <Button
-                    type="submit"
-                    className="bg-gradient-primary hover:shadow-glow"
-                  >
-                    <Search className="h-4 w-4 mr-2" />
-                    Search Rides
-                  </Button>
-                  <div className="flex items-center gap-2 md:ml-auto">
-                    <Switch id="showOwn" checked={showOwnRides} onCheckedChange={setShowOwnRides} />
-                    <UILabel htmlFor="showOwn">Show my rides</UILabel>
-                  </div>
+                  <Button type="submit" className="bg-gradient-primary hover:shadow-glow"><Search className="h-4 w-4 mr-2" />Search Rides</Button>
                 </form>
               </CardContent>
             </Card>
 
-            {/* Available Rides */}
             <div className="space-y-4">
-              {availableRides.length == 0 && <h1>No rides found</h1>}
-              {availableRides.map((ride) => (
+              {availableRides.length === 0 && <h1>No rides found</h1>}
+              {availableRides.map((ride: any) => (
                 <Card key={ride.id} className={`hover:shadow-purdue transition-shadow ${user?.id === ride.driver_id ? 'bg-black text-white' : ''}`}>
                   <CardContent className="p-6">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -271,7 +175,7 @@ const Rides = () => {
                             {ride.special_moment ? <span className="text-primary">({ride.special_moment})</span> : ''} {ride.origin} → {ride.destination}
                           </span>
                         </div>
-                        
+
                         <div className={`flex items-center space-x-4 text-sm mb-3 ${user?.id === ride.driver_id ? 'text-white/80' : 'text-muted-foreground'}`}>
                           <div className="flex items-center space-x-1">
                             <Clock className="h-4 w-4" />
@@ -284,7 +188,7 @@ const Rides = () => {
                         </div>
 
                         <div className="flex items-center space-x-4">
-                          <span className={`text-sm ${user?.id === ride.driver_id ? 'text-white' : ''}`}>Driver: {ride.profiles ? `${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`.trim() || '—' : '—'}</span>
+                          <span className={`text-sm ${user?.id === ride.driver_id ? 'text-white' : ''}`}>Driver: {ride.profiles ? (`${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`).trim() || '—' : '—'}</span>
                           {ride.rating && <Badge variant="secondary">★ {ride.rating}</Badge>}
                           <div className="flex items-center space-x-1 text-sm">
                             <Users className="h-4 w-4" />
@@ -307,9 +211,38 @@ const Rides = () => {
                           <div className="text-xs text-muted-foreground">per person</div>
                         </div>
                         {user?.id !== ride.driver_id && (
-                          <Button className="bg-gradient-primary hover:shadow-glow"> 
-                            Request Ride
-                          </Button>
+                          <PaymentModal
+                            defaultAmount={Number(ride.price || 0)}
+                            maxSplit={4}
+                            trigger={<Button className="bg-gradient-primary hover:shadow-glow">Request Ride</Button>}
+                            onSuccess={async ({ amount, splitCount }) => {
+                              if (!user?.id) {
+                                toast({ title: 'Not signed in', description: 'Please sign in to request a ride', variant: 'destructive' })
+                                return
+                              }
+                              // Create booking and persist payment
+                              const { data: booking, error: createError } = await ridesService.createBooking(user.id, ride.id, 1)
+                              if (createError) {
+                                toast({ title: 'Error', description: 'Failed to create booking', variant: 'destructive' })
+                                return
+                              }
+                              // Mark booking paid with amount
+                              const bookingId = booking?.id
+                              if (bookingId) {
+                                const { error: payErr } = await ridesService.markBookingPaid(Number(bookingId), amount)
+                                if (payErr) {
+                                  toast({ title: 'Payment recorded failed', description: 'Payment could not be recorded', variant: 'destructive' })
+                                }
+                              }
+
+                              setSuccessAmount(amount)
+                              setSuccessTripName(`${ride.origin} → ${ride.destination}`)
+                              setSuccessOpen(true)
+
+                              const mb = await ridesService.getMyBookings(user.id)
+                              setMyBookings(mb.data || [])
+                            }}
+                          />
                         )}
                         {user?.id === ride.driver_id && (
                           <div className="flex gap-2">
@@ -322,44 +255,6 @@ const Rides = () => {
                               }
                             />
                             <Button variant={user?.id === ride.driver_id ? 'secondary' : 'outline'} className={`${user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}`} onClick={() => navigate(`/rides/create?id=${ride.id}`)}>Edit</Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant={user?.id === ride.driver_id ? 'secondary' : 'outline'} className={`${user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}`}>Delete</Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete this ride?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This action cannot be undone. All riders who booked this ride will be notified and their bookings will be removed.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={async () => {
-                                    const { error, affectedRiders } = await ridesService.deleteRideWithBookings(ride.id)
-                                    if (error) {
-                                      console.error('Delete failed', error)
-                                      toast({
-                                        title: "Error",
-                                        description: "Failed to delete ride. Please try again.",
-                                        variant: "destructive"
-                                      })
-                                      return
-                                    }
-                                    toast({
-                                      title: "Ride deleted",
-                                      description: affectedRiders.length > 0 
-                                        ? `Ride deleted. ${affectedRiders.length} rider(s) were notified.`
-                                        : "Ride deleted successfully."
-                                    })
-                                    // refresh
-                                    const { data } = await ridesService.listRides()
-                                    const filtered = (data || []).filter((r: any) => showOwnRides || r.driver_id !== user?.id)
-                                    setAvailableRides(filtered)
-                                  }}>Delete</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
                           </div>
                         )}
                       </div>
@@ -381,9 +276,11 @@ const Rides = () => {
                   </CardContent>
                 </Card>
               )}
+
               {myBookings.map((booking: any) => {
                 const ride = booking.rides
                 if (!ride) return null
+                const total = Number(booking.seats) * Number(ride.price || 0)
                 return (
                   <Card key={booking.id} className="hover:shadow-purdue transition-shadow">
                     <CardContent className="p-6">
@@ -395,7 +292,7 @@ const Rides = () => {
                               {ride.special_moment ? <span className="text-primary">({ride.special_moment}) </span> : ''}{ride.origin} → {ride.destination}
                             </span>
                           </div>
-                          
+
                           <div className="flex items-center space-x-4 text-sm text-muted-foreground mb-3">
                             <div className="flex items-center space-x-1">
                               <Clock className="h-4 w-4" />
@@ -410,7 +307,7 @@ const Rides = () => {
                           </div>
 
                           <div className="flex items-center space-x-4">
-                            <span className="text-sm">Driver: {ride.profiles ? `${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`.trim() || '—' : '—'}</span>
+                            <span className="text-sm">Driver: {ride.profiles ? (`${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`).trim() || '—' : '—'}</span>
                             <div className="flex items-center space-x-1 text-sm">
                               <Users className="h-4 w-4" />
                               <span>{booking.seats} {booking.seats === 1 ? 'seat' : 'seats'} booked</span>
@@ -421,49 +318,68 @@ const Rides = () => {
 
                         <div className="flex items-center space-x-2">
                           <div className="text-right">
-                            <div className="text-2xl font-bold text-primary">${(booking.seats * ride.price).toFixed(2)}</div>
+                            <div className="text-2xl font-bold text-primary">${total.toFixed(2)}</div>
                             <div className="text-xs text-muted-foreground">total cost</div>
                           </div>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm">
-                                <X className="h-4 w-4 mr-2" />
-                                Cancel Booking
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Keep Booking</AlertDialogCancel>
-                                <AlertDialogAction onClick={async () => {
-                                  const { error } = await ridesService.cancelBooking(booking.id, ride.id, booking.seats)
+
+                          <div className="flex gap-2 items-center">
+                            {!booking.paid ? (
+                              <PaymentModal
+                                bookingId={booking.id}
+                                defaultAmount={total}
+                                onSuccess={async ({ bookingId, amount }) => {
+                                  const { error } = await ridesService.markBookingPaid(Number(bookingId), amount)
                                   if (error) {
-                                    console.error('Cancel failed', error)
-                                    toast({
-                                      title: "Error",
-                                      description: "Failed to cancel booking. Please try again.",
-                                      variant: "destructive"
-                                    })
+                                    toast({ title: 'Error', description: 'Failed to record payment', variant: 'destructive' })
                                     return
                                   }
-                                  toast({
-                                    title: "Booking cancelled",
-                                    description: "Your booking has been cancelled successfully."
-                                  })
-                                  // Refresh bookings
+                                  toast({ title: 'Payment recorded' })
                                   const { data } = await ridesService.getMyBookings(user?.id || '')
                                   setMyBookings(data || [])
-                                }}>
+                                }}
+                                trigger={<Button className="bg-gradient-primary">Pay</Button>}
+                              />
+                            ) : (
+                              <Badge className="bg-emerald-600 text-white">Paid</Badge>
+                            )}
+
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm">
+                                  <X className="h-4 w-4 mr-2" />
                                   Cancel Booking
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                                  <AlertDialogAction onClick={async () => {
+                                    const { error } = await ridesService.cancelBooking(booking.id, ride.id, booking.seats)
+                                    if (error) {
+                                      console.error('Cancel failed', error)
+                                      toast({
+                                        title: 'Error',
+                                        description: 'Failed to cancel booking. Please try again.',
+                                        variant: 'destructive'
+                                      })
+                                      return
+                                    }
+                                    toast({ title: 'Booking cancelled', description: 'Your booking has been cancelled successfully.' })
+                                    const { data } = await ridesService.getMyBookings(user?.id || '')
+                                    setMyBookings(data || [])
+                                  }}>
+                                    Cancel Booking
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                         </div>
                       </div>
                     </CardContent>
@@ -474,16 +390,13 @@ const Rides = () => {
           </TabsContent>
 
           <TabsContent value="offer" className="space-y-6">
-            {/* Offer Ride Button */}
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="bg-primary/10 p-4 rounded-full w-fit mx-auto mb-4">
                   <Plus className="h-8 w-8 text-primary" />
                 </div>
                 <h3 className="text-lg font-semibold text-secondary mb-1">Offer a New Ride</h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Share your trip and make money!
-                </p>
+                <p className="text-sm text-muted-foreground mb-3">Share your trip and make money!</p>
                 <Button size="sm" className="bg-gradient-primary hover:shadow-glow" onClick={() => navigate('/rides/create')}>
                   <Plus className="h-4 w-4 mr-2" />
                   Create Ride Offer
@@ -491,10 +404,9 @@ const Rides = () => {
               </CardContent>
             </Card>
 
-            {/* My Offered Rides */}
             <div className="space-y-4">
               <h3 className="text-xl font-semibold text-secondary">Your Offered Rides</h3>
-              {myRides.map((ride) => (
+              {myRidesState.map((ride) => (
                 <Card key={ride.id} className="hover:shadow-purdue transition-shadow">
                   <CardContent className="p-6">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -505,7 +417,7 @@ const Rides = () => {
                             {ride.specialMoment ? <span className="text-primary">({ride.specialMoment})</span> : ''} {ride.from} → {ride.to}
                           </span>
                         </div>
-                        
+
                         <div className="flex items-center space-x-4 text-sm text-muted-foreground mb-3">
                           <div className="flex items-center space-x-1">
                             <Clock className="h-4 w-4" />
@@ -529,61 +441,6 @@ const Rides = () => {
                         </div>
                         <div className="flex flex-col space-y-2">
                           <RideDetailsDialog ride={ride} />
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/rides/create?id=${ride.id}`)}>
-                            Edit
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm">
-                                Delete
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete this ride?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This action cannot be undone. All riders who booked this ride will be notified and their bookings will be removed.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={async () => {
-                                  const { error, affectedRiders } = await ridesService.deleteRideWithBookings(ride.id)
-                                  if (error) {
-                                    console.error('Delete failed', error)
-                                    toast({
-                                      title: "Error",
-                                      description: "Failed to delete ride. Please try again.",
-                                      variant: "destructive"
-                                    })
-                                    return
-                                  }
-                                  toast({
-                                    title: "Ride deleted",
-                                    description: affectedRiders.length > 0 
-                                      ? `Ride deleted. ${affectedRiders.length} rider(s) were notified.`
-                                      : "Ride deleted successfully."
-                                  })
-                                  // Refresh my rides
-                                  const { data } = await ridesService.listMyRides(user?.id || '')
-                                  const mapped = (data || []).map((r: any) => ({
-                                    id: r.id,
-                                    from: r.origin,
-                                    to: r.destination,
-                                    date: r.ride_date,
-                                    time: r.ride_time,
-                                    passengers: Math.max(0, (Number(r.total_seats) - Number(r.seats_available))),
-                                    totalSeats: r.total_seats,
-                                    price: Number(r.price || 0),
-                                    specialMoment: r.special_moment || null,
-                                  }))
-                                  setMyRidesState(mapped)
-                                }}>
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
                         </div>
                       </div>
                     </div>
@@ -595,7 +452,7 @@ const Rides = () => {
         </Tabs>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default Rides;
+export default Rides
