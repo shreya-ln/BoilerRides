@@ -1,5 +1,15 @@
 Supabase is already connected
 
+## To Run the project
+
+```sh
+cd backend
+npm run dev # for backend
+
+# in another terminal in the top directory
+npm run dev # for frontend
+
+```
 ## Project info
 
 ```sh
