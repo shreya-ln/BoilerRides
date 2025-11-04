@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -9,13 +10,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
-import { MapPin, Clock, Users, Car, DollarSign, Eye, AlertCircle, X, Loader2 } from 'lucide-react'
+import { MapPin, Clock, Users, Car, DollarSign, Eye, AlertCircle, X, Loader2, UserRound } from 'lucide-react'
 import { ridesService } from '@/lib/ridesService'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO } from 'date-fns'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/hooks/use-toast'
 import { joinRequestService, JoinRequest } from '@/lib/joinRequestService'
+import { profileService as profileApi, Profile as RiderProfile } from '@/lib/profileService'
 
 interface RideDetailsDialogProps {
   ride: any
@@ -47,6 +49,7 @@ interface RiderInfo {
  */
 export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogProps) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [riders, setRiders] = useState<RiderInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -60,6 +63,11 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([])
   const [joinRequestsLoading, setJoinRequestsLoading] = useState(false)
   const [joinRequestsError, setJoinRequestsError] = useState<string | null>(null)
+  const [cancelLoading, setCancelLoading] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [driverProfile, setDriverProfile] = useState<RiderProfile | null>(null)
+  const [driverProfileLoading, setDriverProfileLoading] = useState(false)
+  const [driverProfileError, setDriverProfileError] = useState<string | null>(null)
   
   // Check if current user is the driver of this ride
   const isDriver = user?.id === ride.driver_id
@@ -119,7 +127,11 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
       try {
         const requests = await joinRequestService.getMyRequests()
         if (!active) return
-        const requestForRide = requests.find((request) => request.ride_id === ride.id)
+        const requestForRide = requests.find(
+          (request) =>
+            request.ride_id === ride.id &&
+            (request.status === 'pending' || request.status === 'approved')
+        )
         setExistingRequest(requestForRide ?? null)
       } catch (err) {
         console.error('Failed to load join requests', err)
@@ -142,8 +154,56 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
       setJoinError(null)
       setJoinSuccess(null)
       setJoinLoading(false)
+      setCancelError(null)
+      setCancelLoading(false)
+      setDriverProfile(null)
+      setDriverProfileError(null)
     }
   }, [open])
+
+  /**
+   * Fetch driver profile details when dialog opens
+   */
+  useEffect(() => {
+    if (!open || !ride?.driver_id) {
+      setDriverProfile(null)
+      setDriverProfileError(null)
+      setDriverProfileLoading(false)
+      return
+    }
+
+    let active = true
+    const loadDriverProfile = async () => {
+      setDriverProfileLoading(true)
+      setDriverProfileError(null)
+      try {
+        const { data, error } = await profileApi.getProfile(ride.driver_id)
+        if (!active) return
+        if (error) {
+          const message = error.message || 'Unable to load driver information.'
+          setDriverProfile(null)
+          setDriverProfileError(message)
+        } else {
+          setDriverProfile(data)
+        }
+      } catch (err: any) {
+        if (!active) return
+        const message = err?.message || 'Unable to load driver information.'
+        setDriverProfile(null)
+        setDriverProfileError(message)
+      } finally {
+        if (active) {
+          setDriverProfileLoading(false)
+        }
+      }
+    }
+
+    loadDriverProfile()
+
+    return () => {
+      active = false
+    }
+  }, [open, ride?.driver_id])
 
   /**
    * Drivers fetch join requests for this ride
@@ -247,6 +307,21 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
     return ride.seats_available ?? 0
   })()
 
+  const driverSupabaseProfile = (() => {
+    if (!ride?.profiles) return null
+    const driverData = ride.profiles
+    if (Array.isArray(driverData)) {
+      return driverData[0] ?? null
+    }
+    return driverData
+  })()
+
+  const driverFirstName = driverProfile?.first_name ?? driverSupabaseProfile?.first_name ?? null
+  const driverLastName = driverProfile?.last_name ?? driverSupabaseProfile?.last_name ?? null
+  const driverDisplayName = getFullName(driverFirstName, driverLastName)
+  const driverEmail = driverProfile?.email ?? driverSupabaseProfile?.email ?? 'No Purdue email on file'
+  const driverAvatarUrl = driverProfile?.avatar_url ?? driverSupabaseProfile?.avatar_url ?? undefined
+
   const seatsAvailable = Math.max(0, Number(computedSeatsAvailable || 0))
   const rideIsFull = seatsAvailable <= 0
   const showJoinSection = !isDriver && !currentUserBooking
@@ -301,12 +376,54 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
     }
   }
 
+  const handleCancelJoinRequest = async () => {
+    if (!existingRequest) return
+
+    setCancelLoading(true)
+    setCancelError(null)
+
+    try {
+      await joinRequestService.cancel(existingRequest.id)
+      setExistingRequest(null)
+      setJoinSuccess(null)
+      toast({
+        title: 'Request cancelled',
+        description: 'Your request to join this ride has been cancelled.'
+      })
+    } catch (err: any) {
+      const message = err?.message || 'Failed to cancel request. Please try again.'
+      setCancelError(message)
+      toast({
+        title: 'Unable to cancel request',
+        description: message,
+        variant: 'destructive'
+      })
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
+  const handleNavigateToProfile = (profileId: string | null | undefined) => {
+    if (!profileId) {
+      toast({
+        title: 'Profile unavailable',
+        description: 'We could not find details for this rider.',
+        variant: 'destructive'
+      })
+      return
+    }
+    setOpen(false)
+    navigate(`/profiles/${profileId}`)
+  }
+
   const joinRequestStatusCopy: Record<string, string> = {
     pending: 'Pending driver review',
     approved: 'Approved by driver',
     rejected: 'Request rejected',
     cancelled: 'Request cancelled'
   }
+  const canCancelRequest =
+    existingRequest ? existingRequest.status === 'pending' || existingRequest.status === 'approved' : false
   const pendingJoinRequests = joinRequests.filter((request) => request.status === 'pending')
 
   /**
@@ -416,6 +533,58 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
             </CardContent>
           </Card>
 
+          {/* Driver Information */}
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <UserRound className="h-5 w-5 text-primary" />
+                  Driver
+                </h3>
+                <Badge variant="outline">Driver</Badge>
+              </div>
+
+              {driverProfileError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{driverProfileError}</AlertDescription>
+                </Alert>
+              )}
+
+              {driverProfileLoading ? (
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-full bg-muted animate-pulse" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-muted rounded w-1/2 animate-pulse" />
+                    <div className="h-3 bg-muted rounded w-1/3 animate-pulse" />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex items-center gap-4 flex-1">
+                    <Avatar className="h-12 w-12">
+                      <AvatarImage src={driverAvatarUrl || undefined} />
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {getInitials(driverFirstName, driverLastName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="text-left">
+                      <div className="font-semibold text-base">{driverDisplayName}</div>
+                      <div className="text-sm text-muted-foreground">{driverEmail}</div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleNavigateToProfile(ride?.driver_id)}
+                  >
+                    <Eye className="h-4 w-4 mr-2" />
+                    View Profile
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Cost split summary */}
           <div>
             <Card>
@@ -476,11 +645,48 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                 )}
 
                 {user && existingRequest && (
-                  <Alert variant={existingRequest.status === 'rejected' ? 'destructive' : 'default'}>
-                    <AlertDescription>
-                      {joinRequestStatusCopy[existingRequest.status] || 'Your request is recorded.'}
-                    </AlertDescription>
-                  </Alert>
+                  <div className="space-y-3">
+                    <Alert variant={existingRequest.status === 'rejected' ? 'destructive' : 'default'}>
+                      <AlertDescription>
+                        {joinRequestStatusCopy[existingRequest.status] || 'Your request is recorded.'}
+                      </AlertDescription>
+                    </Alert>
+
+                    {canCancelRequest && (
+                      <>
+                        {cancelError && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{cancelError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <div className="flex justify-end">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" disabled={cancelLoading}>
+                                {cancelLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Cancel Request
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Cancel join request?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will withdraw your request to join this ride.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel disabled={cancelLoading}>Keep Request</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleCancelJoinRequest} disabled={cancelLoading}>
+                                  {cancelLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                  Cancel Request
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
 
                 {user && !existingRequest && rideIsFull && (
@@ -579,41 +785,51 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                         }
                       return (
                         <Card key={request.id} className="bg-muted/40">
-                          <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center">
-                            <div className="flex items-center gap-3 flex-1">
-                              <Avatar className="h-10 w-10">
-                                <AvatarImage src={profile.avatar_url || undefined} />
-                                <AvatarFallback>
-                                  {getInitials(profile.first_name ?? null, profile.last_name ?? null)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <div className="font-semibold">
-                                  {getFullName(profile.first_name ?? null, profile.last_name ?? null)}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {profile.email || request.rider_id}
+                          <CardContent className="p-4 space-y-3">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                              <div className="flex items-center gap-3 flex-1">
+                                <Avatar className="h-10 w-10">
+                                  <AvatarImage src={profile.avatar_url || undefined} />
+                                  <AvatarFallback>
+                                    {getInitials(profile.first_name ?? null, profile.last_name ?? null)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <div className="font-semibold">
+                                    {getFullName(profile.first_name ?? null, profile.last_name ?? null)}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {profile.email || request.rider_id}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <Badge variant="secondary">
-                                {request.seats} {request.seats === 1 ? 'seat' : 'seats'}
-                              </Badge>
-                              <Badge
-                                variant={
-                                  request.status === 'pending'
-                                    ? 'default'
-                                    : request.status === 'rejected'
-                                      ? 'destructive'
-                                      : 'secondary'
-                                }
+                              <div className="flex items-center gap-3">
+                                <Badge variant="secondary">
+                                  {request.seats} {request.seats === 1 ? 'seat' : 'seats'}
+                                </Badge>
+                                <Badge
+                                  variant={
+                                    request.status === 'pending'
+                                      ? 'default'
+                                      : request.status === 'rejected'
+                                        ? 'destructive'
+                                        : 'secondary'
+                                  }
+                                >
+                                  {joinRequestStatusCopy[request.status] || request.status}
+                                </Badge>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleNavigateToProfile(profile.id || request.rider_id)}
                               >
-                                {joinRequestStatusCopy[request.status] || request.status}
-                              </Badge>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Profile
+                              </Button>
                             </div>
                             {request.message && (
-                              <div className="text-sm text-muted-foreground flex-1">
+                              <div className="text-sm text-muted-foreground">
                                 "{request.message}"
                               </div>
                             )}
@@ -679,16 +895,15 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                           <div className="font-semibold text-base">
                             {getFullName(rider.profiles.first_name, rider.profiles.last_name)}
                           </div>
-                          {rider.profiles.email && (
-                            <div className="text-sm text-muted-foreground">
-                              {rider.profiles.email}
-                            </div>
-                          )}
+                          <div className="text-sm text-muted-foreground">
+                            {rider.profiles.email || 'No Purdue email on file'}
+                          </div>
                         </div>
 
                         {/* Seats Badge */}
-                        <div className="flex flex-col items-end">
-                          <Badge variant="secondary" className="mb-1">
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="flex flex-col items-end">
+                            <Badge variant="secondary" className="mb-1">
                             {rider.seats} {rider.seats === 1 ? 'seat' : 'seats'}
                           </Badge>
                           {/* Paid / Pending */}
@@ -697,39 +912,49 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                           ) : (
                             <Badge className="bg-red-600 text-white">Pending</Badge>
                           )}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleNavigateToProfile(rider.rider_id)}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Profile
+                            </Button>
+                            {/* Remove Button (Driver Only) */}
+                            {isDriver && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Remove rider?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to remove {getFullName(rider.profiles.first_name, rider.profiles.last_name)} from this ride? 
+                                      This will free up {rider.seats} {rider.seats === 1 ? 'seat' : 'seats'} for other riders.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction 
+                                      onClick={() => handleRemoveRider(
+                                        Number(rider.id), 
+                                        getFullName(rider.profiles.first_name, rider.profiles.last_name), 
+                                        rider.seats
+                                      )}
+                                    >
+                                      Remove Rider
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </div>
                         </div>
-
-                        {/* Remove Button (Driver Only) */}
-                        {isDriver && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Remove rider?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to remove {getFullName(rider.profiles.first_name, rider.profiles.last_name)} from this ride? 
-                                  This will free up {rider.seats} {rider.seats === 1 ? 'seat' : 'seats'} for other riders.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction 
-                                  onClick={() => handleRemoveRider(
-                                    Number(rider.id), 
-                                    getFullName(rider.profiles.first_name, rider.profiles.last_name), 
-                                    rider.seats
-                                  )}
-                                >
-                                  Remove Rider
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
                       </div>
                     </CardContent>
                   </Card>

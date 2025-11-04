@@ -22,6 +22,9 @@ router.get('/me', requireAuth, async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const profile = await profileService.getById(req.params.id)
+    if (!profile) {
+      return res.status(404).json({ message: 'Profile not found' })
+    }
     return res.json(profile)
   } catch (error: any) {
     return res.status(500).json({ message: error.message || 'Failed to fetch profile' })

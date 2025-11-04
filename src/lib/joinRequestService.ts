@@ -47,5 +47,9 @@ export const joinRequestService = {
 
   async listForRide(rideId: number): Promise<JoinRequest[]> {
     return apiClient.get<JoinRequest[]>(`/api/join-requests/ride/${rideId}`)
+  },
+
+  async cancel(requestId: number): Promise<JoinRequest> {
+    return apiClient.post<JoinRequest>(`/api/join-requests/${requestId}/cancel`)
   }
 }

@@ -88,8 +88,27 @@ export const joinRequestService = {
       .limit(1)
       .maybeSingle()
 
-    if (existing && ACTIVE_STATUSES.includes(existing.status)) {
-      throw new Error('You already have an active request for this ride')
+    if (existing) {
+      if (ACTIVE_STATUSES.includes(existing.status)) {
+        throw new Error('You already have an active request for this ride')
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from(TABLE_NAME)
+        .update({
+          seats,
+          message: message ?? null,
+          status: 'pending' as JoinRequestStatus
+        })
+        .eq('id', existing.id)
+        .select('*, rides:ride_id(*), profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+        .single()
+
+      if (error || !data) {
+        throw friendlyError('Unable to create join request', error)
+      }
+
+      return data
     }
 
     const { data, error } = await supabaseAdmin
@@ -98,7 +117,7 @@ export const joinRequestService = {
         ride_id: rideId,
         rider_id: riderId,
         seats,
-        message
+        message: message ?? null
       })
       .select('*, rides:ride_id(*), profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .single()
@@ -131,6 +150,7 @@ export const joinRequestService = {
       .from(TABLE_NAME)
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .eq('ride_id', rideId)
+      .neq('status', 'cancelled')
       .order('created_at', { ascending: true })
 
     if (error) {
@@ -138,5 +158,48 @@ export const joinRequestService = {
     }
 
     return data ?? []
+  },
+
+  async cancel(params: { requestId: number; riderId: string }) {
+    const { requestId, riderId } = params
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new Error('Invalid join request id')
+    }
+
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from<JoinRequest>(TABLE_NAME)
+      .select('id, rider_id, status, ride_id')
+      .eq('id', requestId)
+      .maybeSingle()
+
+    if (existingError) {
+      throw friendlyError('Unable to fetch join request', existingError)
+    }
+
+    if (!existing) {
+      throw new Error('Join request not found')
+    }
+
+    if (existing.rider_id !== riderId) {
+      throw new Error('You are not authorized to cancel this request')
+    }
+
+    if (!ACTIVE_STATUSES.includes(existing.status)) {
+      throw new Error(`You cannot cancel a request that is ${existing.status}`)
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from(TABLE_NAME)
+      .update({ status: 'cancelled' as JoinRequestStatus })
+      .eq('id', requestId)
+      .select('*, rides:ride_id(id, origin, destination, ride_date, ride_time, driver_id, seats_available, total_seats)')
+      .single()
+
+    if (error || !data) {
+      throw friendlyError('Unable to cancel join request', error)
+    }
+
+    return data
   }
 }

@@ -52,4 +52,30 @@ router.get('/ride/:rideId', requireAuth, async (req, res) => {
   }
 })
 
+router.post('/:requestId/cancel', requireAuth, async (req, res) => {
+  try {
+    const requestId = Number(req.params.requestId)
+    if (!requestId) {
+      return res.status(400).json({ message: 'requestId must be a number' })
+    }
+
+    const result = await joinRequestService.cancel({
+      requestId,
+      riderId: req.user!.id
+    })
+
+    return res.json(result)
+  } catch (error: any) {
+    const message = error.message || 'Failed to cancel join request'
+    const status = message.includes('authorized')
+      ? 403
+      : message.includes('not found')
+        ? 404
+        : message.includes('Invalid') || message.includes('cannot cancel')
+          ? 400
+          : 500
+    return res.status(status).json({ message })
+  }
+})
+
 export default router

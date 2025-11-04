@@ -14,6 +14,7 @@ import Rides from "./pages/Rides";
 import CreateRide from "./pages/CreateRide";
 import ColorShowcase from "./pages/ColorShowcase";
 import NotFound from "./pages/NotFound";
+import ViewProfile from "./pages/ViewProfile";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,11 @@ const App = () => (
             <Route path="/profile" element={
               <ProtectedRoute>
                 <Profile />
+              </ProtectedRoute>
+            } />
+            <Route path="/profiles/:id" element={
+              <ProtectedRoute requireProfile>
+                <ViewProfile />
               </ProtectedRoute>
             } />
             <Route path="/dashboard" element={
