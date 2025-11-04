@@ -87,6 +87,55 @@ create policy "Users can update own profile"
   using ( auth.uid() = id );
 ```
 
+### Ride Join Requests Table
+To support the "join ride" flow, add a `join_requests` table that tracks each rider's request, prevents duplicates, and lets drivers review the pending seats. Run the following script inside the Supabase SQL editor:
+
+```sql
+create table if not exists public.join_requests (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  ride_id bigint not null references public.rides(id) on delete cascade,
+  rider_id uuid not null references public.profiles(id) on delete cascade,
+  seats integer not null default 1 check (seats > 0),
+  status text not null default 'pending' check (status in ('pending','approved','rejected','cancelled')),
+  message text,
+  constraint join_requests_ride_id_rider_id_key unique (ride_id, rider_id)
+);
+
+create index if not exists idx_join_requests_ride_id on public.join_requests (ride_id);
+create index if not exists idx_join_requests_rider_id on public.join_requests (rider_id);
+
+create or replace function public.set_join_requests_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists set_join_requests_updated_at on public.join_requests;
+create trigger set_join_requests_updated_at
+before update on public.join_requests
+for each row execute procedure public.set_join_requests_updated_at();
+
+alter table public.join_requests enable row level security;
+
+create policy "Riders manage their join requests"
+  on public.join_requests for all
+  using (auth.uid() = rider_id)
+  with check (auth.uid() = rider_id);
+
+create policy "Drivers can view requests for their rides"
+  on public.join_requests for select
+  using (exists (
+    select 1
+    from public.rides
+    where rides.id = join_requests.ride_id
+      and rides.driver_id = auth.uid()
+  ));
+```
+
 ## 6. Environment Files
 
 - `.env` - Your local environment variables (not committed to git)

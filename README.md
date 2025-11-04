@@ -55,3 +55,42 @@ This project is built with:
 - Tailwind CSS
 - Supabase (for authentication and backend services)
 
+## Backend Microservice
+
+The `backend/` directory contains a lightweight Node + Express TypeScript service that handles authenticated API routes (starting with user profiles) on top of Supabase.
+
+### Environment variables
+
+Add the following to your `.env` (or point `BACKEND_ENV_PATH` to a separate file):
+
+```
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=service-role-key-from-supabase
+BACKEND_PORT=4000
+CORS_ORIGIN=http://localhost:5173
+VITE_BACKEND_URL=http://localhost:4000   # frontend uses this base URL
+```
+
+The service automatically falls back to `VITE_SUPABASE_URL` if `SUPABASE_URL` is not set, so you can keep a single source of truth.
+
+### Install and run
+
+```sh
+cd backend
+npm install
+npm run dev    # ts-node-dev with live reload
+# or
+npm run build && npm start
+```
+
+### Routes
+
+All protected routes expect a Supabase session token in the `Authorization: Bearer <token>` header.
+
+- `GET /health` – quick service health check.
+- `GET /api/profiles/me` – fetch the authenticated user’s profile.
+- `GET /api/profiles/:id` – fetch another user’s profile (auth required).
+- `POST /api/profiles` – create or replace the caller’s profile.
+- `PUT /api/profiles/me` – update the caller’s profile fields.
+
+More ride, join-request, and payment endpoints can be layered onto this service in future sprints using the same token-verification middleware.

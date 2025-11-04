@@ -1,5 +1,6 @@
-import { supabase } from './supabase'
 import { PostgrestError } from '@supabase/supabase-js'
+import { supabase } from './supabase'
+import { apiClient } from './apiClient'
 
 export interface Profile {
   id: string
@@ -29,65 +30,46 @@ export interface UpdateProfileData {
   bio?: string
 }
 
+const toServiceError = (error: unknown): PostgrestError => {
+  const message = error instanceof Error ? error.message : 'Request failed'
+  return {
+    message,
+    details: null,
+    hint: null,
+    code: '400'
+  }
+}
+
 // Profile CRUD operations
 export const profileService = {
-  // Get current user's profile
+  // Get a user's profile (falls back to /me when fetching current user)
   async getProfile(userId: string): Promise<{ data: Profile | null; error: PostgrestError | null }> {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle()
-
-      return { data, error }
+      const endpoint = userId === 'me' ? '/api/profiles/me' : `/api/profiles/${userId}`
+      const data = await apiClient.get<Profile>(endpoint)
+      return { data, error: null }
     } catch (error) {
-      return { data: null, error }
+      return { data: null, error: toServiceError(error) }
     }
   },
 
-  // Create a new profile
-  async createProfile(userId: string, profileData: CreateProfileData): Promise<{ data: Profile | null; error: PostgrestError | null }> {
+  // Create or replace the authenticated user's profile
+  async createProfile(_userId: string, profileData: CreateProfileData): Promise<{ data: Profile | null; error: PostgrestError | null }> {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert([
-          {
-            id: userId,
-            first_name: profileData.first_name,
-            last_name: profileData.last_name,
-            email: profileData.email,
-            phone: profileData.phone || null,
-            bio: profileData.bio || null,
-            is_complete: true
-          }
-        ])
-        .select()
-        .single()
-
-      return { data, error }
+      const data = await apiClient.post<Profile>('/api/profiles', profileData)
+      return { data, error: null }
     } catch (error) {
-      return { data: null, error }
+      return { data: null, error: toServiceError(error) }
     }
   },
 
-  // Update existing profile
-  async updateProfile(userId: string, updates: UpdateProfileData): Promise<{ data: Profile | null; error: PostgrestError | null }> {
+  // Update existing profile for the authenticated user
+  async updateProfile(_userId: string, updates: UpdateProfileData): Promise<{ data: Profile | null; error: PostgrestError | null }> {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-          is_complete: true
-        })
-        .eq('id', userId)
-        .select()
-        .single()
-
-      return { data, error }
+      const data = await apiClient.put<Profile>('/api/profiles/me', updates)
+      return { data, error: null }
     } catch (error) {
-      return { data: null, error }
+      return { data: null, error: toServiceError(error) }
     }
   },
 

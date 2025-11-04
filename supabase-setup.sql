@@ -155,3 +155,54 @@ ALTER TABLE IF EXISTS public.ride_bookings
 
 -- Optional: grant select/update privileges to authenticated role if using RLS policies
 -- NOTE: Ensure RLS policies allow the authenticated user to update their own bookings if required.
+
+-- ======================================================================================
+-- Supabase Database Schema for Ride Join Requests
+-- Tracks riders who have requested to join a ride prior to driver approval
+
+CREATE TABLE IF NOT EXISTS join_requests (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ride_id BIGINT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+    rider_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    seats INT NOT NULL DEFAULT 1 CHECK (seats > 0),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+    message TEXT,
+    UNIQUE (ride_id, rider_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_join_requests_ride_id ON join_requests (ride_id);
+CREATE INDEX IF NOT EXISTS idx_join_requests_rider_id ON join_requests (rider_id);
+
+CREATE OR REPLACE FUNCTION public.set_join_requests_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_join_requests_updated_at ON join_requests;
+CREATE TRIGGER set_join_requests_updated_at
+BEFORE UPDATE ON join_requests
+FOR EACH ROW
+EXECUTE PROCEDURE public.set_join_requests_updated_at();
+
+ALTER TABLE join_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Riders manage their join requests"
+    ON join_requests FOR ALL
+    USING (auth.uid() = rider_id)
+    WITH CHECK (auth.uid() = rider_id);
+
+CREATE POLICY "Drivers can view requests for their rides"
+    ON join_requests FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM rides
+            WHERE rides.id = join_requests.ride_id
+              AND rides.driver_id = auth.uid()
+        )
+    );

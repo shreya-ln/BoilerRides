@@ -12,7 +12,6 @@ import { format, parseISO } from 'date-fns'
 import Navigation from '@/components/Navigation'
 import RideDetailsDialog from '@/components/RideDetailsDialog'
 import PaymentModal from '@/components/PaymentModal'
-import PaymentSuccessModal from '@/components/PaymentSuccessModal'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
@@ -32,9 +31,6 @@ const Rides = () => {
   const [availableRides, setAvailableRides] = useState<any[]>([])
   const [myRidesState, setMyRidesState] = useState<any[]>([])
   const [myBookings, setMyBookings] = useState<any[]>([])
-  const [successOpen, setSuccessOpen] = useState(false)
-  const [successAmount, setSuccessAmount] = useState(0)
-  const [successTripName, setSuccessTripName] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const fetchRides = async () => {
@@ -72,8 +68,10 @@ const Rides = () => {
         to: r.destination,
         date: r.ride_date,
         time: r.ride_time,
+        driver_id: r.driver_id,
         passengers: Math.max(0, (Number(r.total_seats) - Number(r.seats_available))),
         totalSeats: r.total_seats,
+        seats_available: r.seats_available,
         price: Number(r.price || 0),
         specialMoment: r.special_moment || null,
       }))
@@ -210,53 +208,28 @@ const Rides = () => {
                           <div className="text-2xl font-bold text-primary">${ride.price}</div>
                           <div className="text-xs text-muted-foreground">per person</div>
                         </div>
-                        {user?.id !== ride.driver_id && (
-                          <PaymentModal
-                            defaultAmount={Number(ride.price || 0)}
-                            maxSplit={4}
-                            trigger={<Button className="bg-gradient-primary hover:shadow-glow">Request Ride</Button>}
-                            onSuccess={async ({ amount, splitCount }) => {
-                              if (!user?.id) {
-                                toast({ title: 'Not signed in', description: 'Please sign in to request a ride', variant: 'destructive' })
-                                return
-                              }
-                              // Create booking and persist payment
-                              const { data: booking, error: createError } = await ridesService.createBooking(user.id, ride.id, 1)
-                              if (createError) {
-                                toast({ title: 'Error', description: 'Failed to create booking', variant: 'destructive' })
-                                return
-                              }
-                              // Mark booking paid with amount
-                              const bookingId = booking?.id
-                              if (bookingId) {
-                                const { error: payErr } = await ridesService.markBookingPaid(Number(bookingId), amount)
-                                if (payErr) {
-                                  toast({ title: 'Payment recorded failed', description: 'Payment could not be recorded', variant: 'destructive' })
-                                }
-                              }
-
-                              setSuccessAmount(amount)
-                              setSuccessTripName(`${ride.origin} → ${ride.destination}`)
-                              setSuccessOpen(true)
-
-                              const mb = await ridesService.getMyBookings(user.id)
-                              setMyBookings(mb.data || [])
-                            }}
+                        <div className="flex gap-2">
+                          <RideDetailsDialog
+                            ride={ride}
+                            trigger={
+                              <Button
+                                variant={user?.id === ride.driver_id ? 'secondary' : 'outline'}
+                                className={user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}
+                              >
+                                {user?.id === ride.driver_id ? 'View' : 'Details'}
+                              </Button>
+                            }
                           />
-                        )}
-                        {user?.id === ride.driver_id && (
-                          <div className="flex gap-2">
-                            <RideDetailsDialog 
-                              ride={ride}
-                              trigger={
-                                <Button variant={user?.id === ride.driver_id ? 'secondary' : 'outline'} className={`${user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}`}>
-                                  View
-                                </Button>
-                              }
-                            />
-                            <Button variant={user?.id === ride.driver_id ? 'secondary' : 'outline'} className={`${user?.id === ride.driver_id ? 'bg-white text-black hover:bg-white/90' : ''}`} onClick={() => navigate(`/rides/create?id=${ride.id}`)}>Edit</Button>
-                          </div>
-                        )}
+                          {user?.id === ride.driver_id && (
+                            <Button
+                              variant="secondary"
+                              className="bg-white text-black hover:bg-white/90"
+                              onClick={() => navigate(`/rides/create?id=${ride.id}`)}
+                            >
+                              Edit
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
