@@ -101,6 +101,38 @@ const Rides = () => {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [user?.id])
 
+  // Realtime: refresh my bookings when a join_request for this user is updated (e.g., approved)
+  useEffect(() => {
+    if (!user?.id) return
+
+    const channel = supabase
+      .channel(`join_requests_user_${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'join_requests', filter: `rider_id=eq.${user.id}` },
+        async (payload: any) => {
+          try {
+            const newStatus = payload?.new?.status || payload?.record?.status
+            if (newStatus === 'approved') {
+              const { data } = await ridesService.getMyBookings(user.id)
+              setMyBookings(data || [])
+            }
+          } catch (err) {
+            console.error('Failed to refresh bookings on realtime update', err)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      try {
+        channel.unsubscribe()
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }, [user?.id])
+
   const searchRides = async () => {
     let query: any = supabase.from('rides').select('*')
     if (searchQuery) query = query.ilike('destination', `%${searchQuery}%`)

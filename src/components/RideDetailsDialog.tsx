@@ -18,6 +18,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/hooks/use-toast'
 import { joinRequestService, JoinRequest } from '@/lib/joinRequestService'
 import { profileService as profileApi, Profile as RiderProfile } from '@/lib/profileService'
+import { useMemo } from 'react'
+import { normalizeRide } from '@/lib/normalizeRide'
 
 interface RideDetailsDialogProps {
   ride: any
@@ -63,12 +65,14 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([])
   const [joinRequestsLoading, setJoinRequestsLoading] = useState(false)
   const [joinRequestsError, setJoinRequestsError] = useState<string | null>(null)
+  const [approvingId, setApprovingId] = useState<number | null>(null)
+  const [rejectingId, setRejectingId] = useState<number | null>(null)
   const [cancelLoading, setCancelLoading] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const [driverProfile, setDriverProfile] = useState<RiderProfile | null>(null)
   const [driverProfileLoading, setDriverProfileLoading] = useState(false)
   const [driverProfileError, setDriverProfileError] = useState<string | null>(null)
-  
+  const normalizedRide = useMemo(() => normalizeRide(ride), [ride])
   // Check if current user is the driver of this ride
   const isDriver = user?.id === ride.driver_id
 
@@ -92,8 +96,10 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
       
       // Normalize profiles shape: if profiles is an array, take the first element
       const normalized = (data || []).map((d: any) => ({
-        ...d,
-        profiles: Array.isArray(d.profiles) ? d.profiles[0] : d.profiles,
+          ...d,
+          profiles: Array.isArray(d.profiles) 
+              ? (d.profiles[0] || {}) 
+              : (d.profiles || {}),
       }))
       setRiders(normalized as RiderInfo[])
     } catch (err) {
@@ -286,10 +292,10 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   /**
    * Format full name from first and last name
    */
-  const getFullName = (firstName: string | null, lastName: string | null) => {
-    const parts = [firstName, lastName].filter(Boolean)
-    return parts.length > 0 ? parts.join(' ') : 'Unknown User'
-  }
+    const getFullName = (firstName: string | null, lastName: string | null) => {
+        const parts = [firstName, lastName].filter(Boolean)
+        return parts.length > 0 ? parts.join(' ') : 'Unknown User'
+    }
 
   const computedSeatsAvailable = (() => {
     if (ride.seats_available !== undefined && ride.seats_available !== null) {
@@ -476,10 +482,10 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                   <div className="flex-1">
                     <div className="text-sm text-muted-foreground">Route</div>
                     <div className="font-semibold text-lg">
-                      {ride.specialMoment || ride.special_moment ? (
-                        <span className="text-primary">({ride.specialMoment || ride.special_moment}) </span>
+                      {normalizedRide.specialMoment ? (
+                        <span className="text-primary">({normalizedRide.specialMoment}) </span>
                       ) : null}
-                      {ride.from || ride.origin} → {ride.to || ride.destination}
+                      {normalizedRide.origin} → {normalizedRide.destination}
                     </div>
                   </div>
                 </div>
@@ -489,9 +495,9 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                   <Clock className="h-5 w-5 text-primary mt-1" />
                   <div>
                     <div className="text-sm text-muted-foreground">Date & Time</div>
-                    <div className="font-semibold">
-                      {format(parseISO(ride.date || ride.ride_date), 'EEEE, MMMM d, yyyy')} at{' '}
-                      {format(new Date(`1970-01-01T${ride.time || ride.ride_time}`), 'h:mm a')}
+                      <div className="font-semibold">
+                      {format(parseISO(normalizedRide.rideDate), 'EEEE, MMMM d, yyyy')} at{' '}
+                      {format(new Date(`1970-01-01T${normalizedRide.rideTime}`), 'h:mm a')}
                     </div>
                   </div>
                 </div>
@@ -526,7 +532,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                   <DollarSign className="h-5 w-5 text-primary mt-1" />
                   <div>
                     <div className="text-sm text-muted-foreground">Price per seat</div>
-                    <div className="font-semibold text-xl text-primary">${ride.price}</div>
+                    <div className="font-semibold text-xl text-primary">${normalizedRide.price}</div>
                   </div>
                 </div>
               </div>
@@ -819,14 +825,70 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                                   {joinRequestStatusCopy[request.status] || request.status}
                                 </Badge>
                               </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleNavigateToProfile(profile.id || request.rider_id)}
-                              >
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Profile
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleNavigateToProfile(profile.id || request.rider_id)}
+                                >
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View Profile
+                                </Button>
+
+                                {request.status === 'pending' && (
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          setApprovingId(request.id)
+                                          await joinRequestService.approve(request.id)
+                                          toast({ title: 'Request approved', description: 'The rider has been added to the ride.' })
+                                          // refresh lists
+                                          const data = await joinRequestService.listForRide(Number(ride.id))
+                                          setJoinRequests(data || [])
+                                          fetchRiders()
+                                        } catch (err: any) {
+                                          toast({ title: 'Unable to approve', description: err?.message || 'Try again', variant: 'destructive' })
+                                        } finally {
+                                          setApprovingId(null)
+                                        }
+                                      }}
+                                      disabled={approvingId === request.id}
+                                    >
+                                      {approvingId === request.id ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      ) : null}
+                                      Accept
+                                    </Button>
+
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-destructive"
+                                      onClick={async () => {
+                                        try {
+                                          setRejectingId(request.id)
+                                          await joinRequestService.reject(request.id)
+                                          toast({ title: 'Request rejected', description: 'The rider request was rejected.' })
+                                          const data = await joinRequestService.listForRide(Number(ride.id))
+                                          setJoinRequests(data || [])
+                                        } catch (err: any) {
+                                          toast({ title: 'Unable to reject', description: err?.message || 'Try again', variant: 'destructive' })
+                                        } finally {
+                                          setRejectingId(null)
+                                        }
+                                      }}
+                                      disabled={rejectingId === request.id}
+                                    >
+                                      {rejectingId === request.id ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      ) : null}
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             {request.message && (
                               <div className="text-sm text-muted-foreground">
@@ -878,27 +940,31 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
             {/* Riders List */}
             {!loading && !error && riders.length > 0 && (
               <div className="space-y-3">
-                {riders.map((rider) => (
-                  <Card key={rider.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-center space-x-4">
-                        {/* Avatar */}
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={rider.profiles.avatar_url || undefined} />
-                          <AvatarFallback className="bg-primary/10 text-primary">
-                            {getInitials(rider.profiles.first_name, rider.profiles.last_name)}
-                          </AvatarFallback>
-                        </Avatar>
+                {riders.map((rider) => {
+                        const profile = rider.profiles || {};
+                        const firstName = profile?.first_name || '';
+                        const lastName = profile?.last_name || '';
+                    return (
+                      <Card key={rider.id} className="hover:shadow-md transition-shadow">
+                        <CardContent className="p-4">
+                          <div className="flex items-center space-x-4">
+                            {/* Avatar */}
+                            <Avatar className="h-12 w-12">
+                              <AvatarImage src={profile.avatar_url || undefined} />
+                              <AvatarFallback className="bg-primary/10 text-primary">
+                                {getInitials(profile.first_name || '', profile.last_name || '')}
+                              </AvatarFallback>
+                            </Avatar>
 
-                        {/* Rider Info */}
-                        <div className="flex-1">
-                          <div className="font-semibold text-base">
-                            {getFullName(rider.profiles.first_name, rider.profiles.last_name)}
+                          {/* Rider Info */}
+                          <div className="flex-1">
+                            <div className="font-semibold text-base">
+                              {getFullName(profile.first_name || null, profile.last_name || null)}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {profile.email || 'No Purdue email on file'}
+                            </div>
                           </div>
-                          <div className="text-sm text-muted-foreground">
-                            {rider.profiles.email || 'No Purdue email on file'}
-                          </div>
-                        </div>
 
                         {/* Seats Badge */}
                         <div className="flex flex-col items-end gap-2">
@@ -958,7 +1024,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                )})}
               </div>
             )}
           </div>

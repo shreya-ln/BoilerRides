@@ -52,4 +52,13 @@ export const joinRequestService = {
   async cancel(requestId: number): Promise<JoinRequest> {
     return apiClient.post<JoinRequest>(`/api/join-requests/${requestId}/cancel`)
   }
+  ,
+
+  async approve(requestId: number): Promise<JoinRequest> {
+    return apiClient.post<JoinRequest>(`/api/join-requests/${requestId}/approve`)
+  },
+
+  async reject(requestId: number): Promise<JoinRequest> {
+    return apiClient.post<JoinRequest>(`/api/join-requests/${requestId}/reject`)
+  }
 }

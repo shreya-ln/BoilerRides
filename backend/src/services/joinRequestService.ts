@@ -80,7 +80,7 @@ export const joinRequestService = {
     }
 
     const { data: existing } = await supabaseAdmin
-      .from<JoinRequest>(TABLE_NAME)
+      .from(TABLE_NAME)
       .select('id, status')
       .eq('ride_id', rideId)
       .eq('rider_id', riderId)
@@ -168,7 +168,7 @@ export const joinRequestService = {
     }
 
     const { data: existing, error: existingError } = await supabaseAdmin
-      .from<JoinRequest>(TABLE_NAME)
+      .from(TABLE_NAME)
       .select('id, rider_id, status, ride_id')
       .eq('id', requestId)
       .maybeSingle()
@@ -198,6 +198,117 @@ export const joinRequestService = {
 
     if (error || !data) {
       throw friendlyError('Unable to cancel join request', error)
+    }
+
+    return data
+  }
+
+  ,
+
+  async approve(params: { requestId: number; driverId: string }) {
+    const { requestId, driverId } = params
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new Error('Invalid join request id')
+    }
+
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from(TABLE_NAME)
+      .select('id, rider_id, status, ride_id, seats')
+      .eq('id', requestId)
+      .maybeSingle()
+
+    if (existingError) {
+      throw friendlyError('Unable to fetch join request', existingError)
+    }
+
+    if (!existing) {
+      throw new Error('Join request not found')
+    }
+
+    // Ensure driver owns the ride
+    const ride = await fetchRide(existing.ride_id)
+    if (!ride) throw new Error('Ride not found')
+    if (ride.driver_id !== driverId) throw new Error('You are not authorized to approve this request')
+
+    if (existing.status !== 'pending') {
+      throw new Error(`Cannot approve a request that is ${existing.status}`)
+    }
+
+    // Create booking and update seats atomically where possible
+    // Insert booking
+    const { data: booking, error: bookingError } = await supabaseAdmin
+      .from('ride_bookings')
+      .insert({ rider_id: existing.rider_id, ride_id: existing.ride_id, seats: existing.seats })
+      .select()
+      .single()
+
+    if (bookingError || !booking) {
+      throw friendlyError('Unable to create booking for request', bookingError)
+    }
+
+    // Update join_request status
+    const { data: updatedRequest, error: updateError } = await supabaseAdmin
+      .from(TABLE_NAME)
+      .update({ status: 'approved' as JoinRequestStatus })
+      .eq('id', requestId)
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .single()
+
+    if (updateError || !updatedRequest) {
+      throw friendlyError('Unable to mark join request approved', updateError)
+    }
+
+    // Decrement seats_available on ride (best-effort)
+    try {
+      const newSeats = Math.max(0, Number(ride.seats_available ?? 0) - Number(existing.seats))
+      await supabaseAdmin.from('rides').update({ seats_available: newSeats }).eq('id', existing.ride_id)
+    } catch (e) {
+      // ignore: if seat bookkeeping is handled by triggers/policies
+    }
+
+    return updatedRequest
+  },
+
+  async reject(params: { requestId: number; driverId: string }) {
+    const { requestId, driverId } = params
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new Error('Invalid join request id')
+    }
+
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from(TABLE_NAME)
+      .select('id, rider_id, status, ride_id')
+      .eq('id', requestId)
+      .maybeSingle()
+
+    if (existingError) {
+      throw friendlyError('Unable to fetch join request', existingError)
+    }
+
+    if (!existing) {
+      throw new Error('Join request not found')
+    }
+
+    // Ensure driver owns the ride
+    const ride = await fetchRide(existing.ride_id)
+    if (!ride) throw new Error('Ride not found')
+    if (ride.driver_id !== driverId) throw new Error('You are not authorized to reject this request')
+
+    if (existing.status !== 'pending') {
+      throw new Error(`Cannot reject a request that is ${existing.status}`)
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from(TABLE_NAME)
+      .update({ status: 'rejected' as JoinRequestStatus })
+      .eq('id', requestId)
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .single()
+
+    if (error || !data) {
+      throw friendlyError('Unable to reject join request', error)
     }
 
     return data

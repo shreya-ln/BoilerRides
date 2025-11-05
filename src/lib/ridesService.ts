@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 
+
 export interface Ride {
   id: number
   created_at: string
