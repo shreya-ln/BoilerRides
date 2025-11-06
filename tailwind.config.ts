@@ -20,8 +20,8 @@ export default {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "#CEB888", // Purdue Old Gold
+          dark: "#DAAA00",    // Supporting Gold
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
