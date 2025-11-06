@@ -420,19 +420,27 @@ const Rides = () => {
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Keep Booking</AlertDialogCancel>
                                   <AlertDialogAction onClick={async () => {
-                                    const { error } = await ridesService.cancelBooking(booking.id, ride.id, booking.seats)
-                                    if (error) {
-                                      console.error('Cancel failed', error)
+                                    try {
+                                      const { error } = await ridesService.cancelBooking(booking.id, ride.id, booking.seats)
+                                      if (error) {
+                                        console.error('Cancel failed', error)
+                                        toast({
+                                          title: 'Error',
+                                          description: error.message || 'Failed to cancel booking. Please try again.',
+                                          variant: 'destructive'
+                                        })
+                                        return
+                                      }
+                                      toast({ title: 'Booking cancelled', description: 'Your booking has been cancelled successfully. Your seat(s) are now available for others.' })
+                                      const { data } = await ridesService.getMyBookings(user?.id || '')
+                                      setMyBookings(data || [])
+                                    } catch (err: any) {
                                       toast({
                                         title: 'Error',
-                                        description: 'Failed to cancel booking. Please try again.',
+                                        description: err.message || 'Failed to cancel booking. Please try again.',
                                         variant: 'destructive'
                                       })
-                                      return
                                     }
-                                    toast({ title: 'Booking cancelled', description: 'Your booking has been cancelled successfully.' })
-                                    const { data } = await ridesService.getMyBookings(user?.id || '')
-                                    setMyBookings(data || [])
                                   }}>
                                     Cancel Booking
                                   </AlertDialogAction>
@@ -501,6 +509,86 @@ const Rides = () => {
                         </div>
                         <div className="flex flex-col space-y-2">
                           <RideDetailsDialog ride={ride} />
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm">
+                                <X className="h-4 w-4 mr-2" />
+                                Delete Ride
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete this ride?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete this ride? This will cancel all bookings and remove all riders from this trip. This action cannot be undone.
+                                  {ride.passengers > 0 && (
+                                    <span className="block mt-2 font-semibold text-destructive">
+                                      {ride.passengers} {ride.passengers === 1 ? 'rider' : 'riders'} will be affected.
+                                    </span>
+                                  )}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Keep Ride</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={async () => {
+                                    try {
+                                      const { error, affectedRiders } = await ridesService.deleteRideWithBookings(ride.id)
+                                      if (error) {
+                                        console.error('Delete failed', error)
+                                        toast({
+                                          title: 'Error',
+                                          description: error.message || 'Failed to delete ride. Please try again.',
+                                          variant: 'destructive'
+                                        })
+                                        return
+                                      }
+                                      toast({ 
+                                        title: 'Ride deleted', 
+                                        description: `Your ride has been deleted${affectedRiders && affectedRiders.length > 0 ? ` and ${affectedRiders.length} ${affectedRiders.length === 1 ? 'rider has' : 'riders have'} been notified.` : '.'}`
+                                      })
+                                      // Refresh the rides list
+                                      const now = new Date()
+                                      const today = now.toISOString().split('T')[0]
+                                      const currentTime = now.toTimeString().split(' ')[0]
+                                      const { data, error: fetchError } = await supabase
+                                        .from('rides')
+                                        .select('*')
+                                        .eq('driver_id', user?.id)
+                                        .or(`ride_date.gt.${today},and(ride_date.eq.${today},ride_time.gt.${currentTime})`)
+                                        .order('ride_date', { ascending: true })
+                                        .order('ride_time', { ascending: true })
+                                      if (!fetchError && data) {
+                                        const mapped = data.map((r: any) => ({
+                                          id: r.id,
+                                          from: r.origin,
+                                          to: r.destination,
+                                          date: r.ride_date,
+                                          time: r.ride_time,
+                                          driver_id: r.driver_id,
+                                          passengers: Math.max(0, (Number(r.total_seats) - Number(r.seats_available))),
+                                          totalSeats: r.total_seats,
+                                          seats_available: r.seats_available,
+                                          price: Number(r.price || 0),
+                                          specialMoment: r.special_moment || null,
+                                        }))
+                                        setMyRidesState(mapped)
+                                      }
+                                    } catch (err: any) {
+                                      toast({
+                                        title: 'Error',
+                                        description: err.message || 'Failed to delete ride. Please try again.',
+                                        variant: 'destructive'
+                                      })
+                                    }
+                                  }}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Delete Ride
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </div>
                     </div>

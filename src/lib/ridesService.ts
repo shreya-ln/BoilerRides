@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { apiClient } from '@/lib/apiClient'
 
 
 export interface Ride {
@@ -215,50 +216,20 @@ export const ridesService = {
   },
 
   // Cancel a booking (rider drops from a ride)
+  // Uses backend API to ensure proper cleanup and seat availability updates
   async cancelBooking(bookingId: number, rideId: number, seatsToFree: number) {
-    // First get the current ride to know seats available
-    const { data: ride, error: fetchError } = await supabase
-      .from('rides')
-      .select('seats_available')
-      .eq('id', rideId)
-      .single()
-
-    if (fetchError) {
-      return { error: fetchError }
+    try {
+      const result = await apiClient.post<{ success: boolean; seatsFreed: number }>(
+        `/api/rides/${rideId}/bookings/${bookingId}/cancel`,
+        { seats: seatsToFree }
+      )
+      return { data: result, error: null }
+    } catch (error: any) {
+      return { 
+        data: null, 
+        error: { message: error.message || 'Failed to cancel booking' } as any 
+      }
     }
-
-    // Delete the booking
-    const { data: booking, error: deleteError } = await supabase
-      .from('ride_bookings')
-      .delete()
-      .select('rider_id')
-      .eq('id', bookingId)
-      .single();
-
-    if (deleteError) {
-      return { error: deleteError }
-    }
-
-    // Update the ride to increase seats_available
-    const { error: updateError } = await supabase
-      .from('rides')
-      .update({ 
-        seats_available: (ride.seats_available || 0) + seatsToFree
-      })
-      .eq('id', rideId)
-
-    if (updateError) {
-      return { error: updateError }
-    }
-
-    const { data, error: rejectError } = await supabase
-      .from('join_requests')
-      .update({ status: 'rejected' })
-      .eq('ride_id', rideId)
-      .eq('rider_id', booking.rider_id)
-      .single()
-    
-    return { error: rejectError }
   },
 
   // Remove a rider from a ride (driver removes specific rider)
@@ -268,26 +239,25 @@ export const ridesService = {
   },
 
   // Delete ride with all bookings (driver deletes ride)
+  // Uses backend API to ensure proper cleanup of all riders and join requests
   async deleteRideWithBookings(rideId: number) {
-    // First fetch all bookings to get count for notification purposes
-    const { data: bookings, error: fetchError } = await supabase
-      .from('ride_bookings')
-      .select('id, seats, rider_id, profiles:rider_id(first_name, last_name, email)')
-      .eq('ride_id', rideId)
-
-    if (fetchError) {
-      return { error: fetchError, affectedRiders: [] }
-    }
-
-    // Delete the ride (CASCADE will handle bookings automatically)
-    const { error: deleteError } = await supabase
-      .from('rides')
-      .delete()
-      .eq('id', rideId)
-
-    return { 
-      error: deleteError, 
-      affectedRiders: bookings || [] 
+    try {
+      const result = await apiClient.delete<{ 
+        success: boolean; 
+        affectedRiders: any[]; 
+        affectedRequests: any[] 
+      }>(`/api/rides/${rideId}`)
+      return { 
+        data: result, 
+        error: null,
+        affectedRiders: result.affectedRiders || []
+      }
+    } catch (error: any) {
+      return { 
+        data: null, 
+        error: { message: error.message || 'Failed to delete ride' } as any,
+        affectedRiders: []
+      }
     }
   },
 }
