@@ -136,7 +136,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
         const requestForRide = requests.find(
           (request) =>
             request.ride_id === ride.id &&
-            (request.status === 'pending' || request.status === 'approved')
+            (request.status === 'pending' || request.status === 'approved' || request.status === 'rejected')
         )
         setExistingRequest(requestForRide ?? null)
       } catch (err) {
@@ -446,12 +446,12 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
       })
       return
     }
-    
+
     toast({
       title: "Rider removed",
       description: `${riderName} has been removed from this ride.`
     })
-    
+
     // Refresh riders list
     fetchRiders()
   }
@@ -667,12 +667,12 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                         )}
                         <div className="flex justify-end">
                           <AlertDialog>
-                            <AlertDialogTrigger asChild>
+                            {existingRequest.status != 'approved' && <AlertDialogTrigger asChild>
                               <Button variant="destructive" disabled={cancelLoading}>
                                 {cancelLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Cancel Request
                               </Button>
-                            </AlertDialogTrigger>
+                            </AlertDialogTrigger>}
                             <AlertDialogContent>
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Cancel join request?</AlertDialogTitle>

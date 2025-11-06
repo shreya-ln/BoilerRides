@@ -25,7 +25,8 @@ const Rides = () => {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedDate, setSelectedDate] = useState<any>(null)
-  const [selectedTime, setSelectedTime] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [endTime, setEndTime] = useState('')
   const [showOwnRides, setShowOwnRides] = useState(false)
 
   const [availableRides, setAvailableRides] = useState<any[]>([])
@@ -59,9 +60,22 @@ const Rides = () => {
 
   useEffect(() => {
     const fetchMyRides = async () => {
-      if (!user?.id) return
-      const { data, error } = await ridesService.listMyRides(user.id)
+      if (!user?.id) return;
+
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const currentTime = now.toTimeString().split(' ')[0];
+
+      const { data, error } = await supabase
+        .from('rides')
+        .select('*')
+        .eq('driver_id', user.id)
+        .or(`ride_date.gt.${today},and(ride_date.eq.${today},ride_time.gt.${currentTime})`)
+        .order('ride_date', { ascending: true })
+        .order('ride_time', { ascending: true })
+
       if (error) return console.error('Error fetching my rides:', error)
+
       const mapped = (data || []).map((r: any) => ({
         id: r.id,
         from: r.origin,
@@ -137,7 +151,13 @@ const Rides = () => {
     let query: any = supabase.from('rides').select('*')
     if (searchQuery) query = query.ilike('destination', `%${searchQuery}%`)
     if (selectedDate) query = query.eq('ride_date', format(selectedDate, 'yyyy-MM-dd'))
-    if (selectedTime) query = query.lte('ride_time', selectedTime)
+    if (startTime && endTime) {
+      query = query.gte('ride_time', startTime).lte('ride_time', endTime)
+    } else if (startTime) {
+      query = query.gte('ride_time', startTime)
+    } else if (endTime) {
+      query = query.lte('ride_time', endTime)
+    }
     const { data, error } = await query
     if (error) return console.error('Error fetching rides:', error)
     const filtered = (data || []).filter((r: any) => showOwnRides || r.driver_id !== user?.id)
@@ -182,9 +202,44 @@ const Rides = () => {
                     </PopoverContent>
                   </Popover>
 
-                  <div className="relative md:w-[150px]">
-                    <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input type="time" value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} className="pl-10" />
+                  <div className="flex items-center gap-2 md:w-[220px]">
+                    <div className="relative flex-1">
+                      <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="pl-10"
+                      />
+                      {startTime && (
+                        <button
+                          type="button"
+                          onClick={() => setStartTime('')}
+                          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground">–</span>
+                    <div className="relative flex-1">
+                      <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="pl-10"
+                      />
+                      {endTime && (
+                        <button
+                          type="button"
+                          onClick={() => setEndTime('')}
+                          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <Button type="submit" className="bg-gradient-primary hover:shadow-glow"><Search className="h-4 w-4 mr-2" />Search Rides</Button>

@@ -306,6 +306,7 @@ export const joinRequestService = {
       .eq('id', requestId)
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .single()
+    console.log(data);
 
     if (error || !data) {
       throw friendlyError('Unable to reject join request', error)

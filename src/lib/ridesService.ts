@@ -54,6 +54,10 @@ export const ridesService = {
 
   // Lists rides with optional filters
   async listRides(filters?: { destinationIlike?: string; dateEq?: string; timeGte?: string }) {
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const currentTime = now.toTimeString().split(' ')[0]
+
     let query = supabase
       .from('rides')
       .select('*, profiles:driver_id(first_name,last_name,avatar_url)')
@@ -67,6 +71,12 @@ export const ridesService = {
     if (filters?.timeGte) {
       query = query.gte('ride_time', filters.timeGte)
     }
+
+    query = query.or(`ride_date.gt.${today},and(ride_date.eq.${today},ride_time.gt.${currentTime})`)
+
+    query = query
+      .order('ride_date', { ascending: true })
+      .order('ride_time', { ascending: true })
 
     const { data, error } = await query
     return { data: data ?? [], error }
@@ -218,10 +228,12 @@ export const ridesService = {
     }
 
     // Delete the booking
-    const { error: deleteError } = await supabase
+    const { data: booking, error: deleteError } = await supabase
       .from('ride_bookings')
       .delete()
+      .select('rider_id')
       .eq('id', bookingId)
+      .single();
 
     if (deleteError) {
       return { error: deleteError }
@@ -235,7 +247,18 @@ export const ridesService = {
       })
       .eq('id', rideId)
 
-    return { error: updateError }
+    if (updateError) {
+      return { error: updateError }
+    }
+
+    const { data, error: rejectError } = await supabase
+      .from('join_requests')
+      .update({ status: 'rejected' })
+      .eq('ride_id', rideId)
+      .eq('rider_id', booking.rider_id)
+      .single()
+    
+    return { error: rejectError }
   },
 
   // Remove a rider from a ride (driver removes specific rider)
