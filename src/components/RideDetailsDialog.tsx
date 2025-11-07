@@ -837,55 +837,107 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
 
                                 {request.status === 'pending' && (
                                   <div className="flex items-center gap-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={async () => {
-                                        try {
-                                          setApprovingId(request.id)
-                                          await joinRequestService.approve(request.id)
-                                          toast({ title: 'Request approved', description: 'The rider has been added to the ride.' })
-                                          // refresh lists
-                                          const data = await joinRequestService.listForRide(Number(ride.id))
-                                          setJoinRequests(data || [])
-                                          fetchRiders()
-                                        } catch (err: any) {
-                                          toast({ title: 'Unable to approve', description: err?.message || 'Try again', variant: 'destructive' })
-                                        } finally {
-                                          setApprovingId(null)
-                                        }
-                                      }}
-                                      disabled={approvingId === request.id}
-                                    >
-                                      {approvingId === request.id ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      ) : null}
-                                      Accept
-                                    </Button>
-
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-destructive"
-                                      onClick={async () => {
-                                        try {
-                                          setRejectingId(request.id)
-                                          await joinRequestService.reject(request.id)
-                                          toast({ title: 'Request rejected', description: 'The rider request was rejected.' })
-                                          const data = await joinRequestService.listForRide(Number(ride.id))
-                                          setJoinRequests(data || [])
-                                        } catch (err: any) {
-                                          toast({ title: 'Unable to reject', description: err?.message || 'Try again', variant: 'destructive' })
-                                        } finally {
-                                          setRejectingId(null)
-                                        }
-                                      }}
-                                      disabled={rejectingId === request.id}
-                                    >
-                                      {rejectingId === request.id ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      ) : null}
-                                      Reject
-                                    </Button>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        disabled={approvingId === request.id}
+                                      >
+                                        {approvingId === request.id ? (
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        ) : null}
+                                        Accept
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Accept Request</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Are you sure you want to approve this rider’s join request?
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={async () => {
+                                            try {
+                                              setApprovingId(request.id)
+                                              await joinRequestService.approve(request.id)
+                                              toast({
+                                                title: 'Request approved',
+                                                description: 'The rider has been added to the ride.',
+                                              })
+                                              // refresh lists
+                                              const data = await joinRequestService.listForRide(Number(ride.id))
+                                              setJoinRequests(data || [])
+                                              fetchRiders()
+                                              } catch (err: any) {
+                                                toast({
+                                                  title: 'Unable to approve',
+                                                  description: err?.message || 'Try again',
+                                                  variant: 'destructive',
+                                                })
+                                              } finally {
+                                                setApprovingId(null)
+                                              }
+                                            }}
+                                          >
+                                            Yes, Approve
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-destructive"
+                                          disabled={rejectingId === request.id}
+                                        >
+                                          {rejectingId === request.id ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          ) : null}
+                                          Reject
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Reject Request</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Are you sure you want to reject this rider’s join request?
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            className="bg-destructive text-white hover:bg-destructive/90"
+                                            onClick={async () => {
+                                              try {
+                                                setRejectingId(request.id)
+                                                await joinRequestService.reject(request.id)
+                                                toast({
+                                                  title: 'Request rejected',
+                                                  description: 'The rider request was rejected.',
+                                                })
+                                                const data = await joinRequestService.listForRide(Number(ride.id))
+                                                setJoinRequests(data || [])
+                                              } catch (err: any) {
+                                                toast({
+                                                  title: 'Unable to reject',
+                                                  description: err?.message || 'Try again',
+                                                  variant: 'destructive',
+                                                })
+                                              } finally {
+                                                setRejectingId(null)
+                                              }
+                                            }}
+                                          >
+                                            Yes, Reject
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
                                   </div>
                                 )}
                               </div>
