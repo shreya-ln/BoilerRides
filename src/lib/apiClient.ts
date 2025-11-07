@@ -50,5 +50,6 @@ export const apiClient = {
   post: <T>(path: string, body?: unknown) =>
     authorizedFetch<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T>(path: string, body?: unknown) =>
-    authorizedFetch<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined })
+    authorizedFetch<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+  delete: <T>(path: string) => authorizedFetch<T>(path, { method: 'DELETE' })
 }

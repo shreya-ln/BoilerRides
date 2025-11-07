@@ -4,6 +4,7 @@ import morgan from 'morgan'
 import { env } from './config/env'
 import profileRoutes from './routes/profileRoutes'
 import joinRequestRoutes from './routes/joinRequestRoutes'
+import ridesRoutes from './routes/ridesRoutes'
 
 const app = express()
 const origins = env.corsOrigin.split(',').map(origin => origin.trim())
@@ -23,6 +24,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/profiles', profileRoutes)
 app.use('/api/join-requests', joinRequestRoutes)
+app.use('/api/rides', ridesRoutes)
 
 app.use((req, res) => {
   res.status(404).json({ message: `Route ${req.path} not found` })
