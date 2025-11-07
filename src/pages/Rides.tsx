@@ -148,20 +148,40 @@ const Rides = () => {
   }, [user?.id])
 
   const searchRides = async () => {
-    let query: any = supabase.from('rides').select('*')
-    if (searchQuery) query = query.ilike('destination', `%${searchQuery}%`)
-    if (selectedDate) query = query.eq('ride_date', format(selectedDate, 'yyyy-MM-dd'))
-    if (startTime && endTime) {
-      query = query.gte('ride_time', startTime).lte('ride_time', endTime)
-    } else if (startTime) {
-      query = query.gte('ride_time', startTime)
-    } else if (endTime) {
-      query = query.lte('ride_time', endTime)
+    try {
+      const { data, error } = await ridesService.listRides()
+      if (error) return console.error('Error fetching rides:', error)
+
+      let filtered = data || []
+
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase()
+        filtered = filtered.filter((r: any) => r.destination?.toLowerCase().includes(q))
+      }
+
+      if (selectedDate) {
+        const formattedDate = format(selectedDate, 'yyyy-MM-dd')
+        filtered = filtered.filter((r: any) => r.ride_date === formattedDate)
+      }
+
+      if (startTime && endTime) {
+        filtered = filtered.filter(
+          (r: any) => r.ride_time >= startTime && r.ride_time <= endTime
+        )
+      } else if (startTime) {
+        filtered = filtered.filter((r: any) => r.ride_time >= startTime)
+      } else if (endTime) {
+        filtered = filtered.filter((r: any) => r.ride_time <= endTime)
+      }
+
+      if (!showOwnRides) {
+        filtered = filtered.filter((r: any) => r.driver_id !== user?.id)
+      }
+
+      setAvailableRides(filtered)
+    } catch (err) {
+      console.error('Unexpected error:', err)
     }
-    const { data, error } = await query
-    if (error) return console.error('Error fetching rides:', error)
-    const filtered = (data || []).filter((r: any) => showOwnRides || r.driver_id !== user?.id)
-    setAvailableRides(filtered)
   }
 
   return (
@@ -184,7 +204,7 @@ const Rides = () => {
           <TabsContent value="find" className="space-y-6">
             <Card>
               <CardContent className="p-6">
-                <form onSubmit={(e) => { e.preventDefault(); searchRides() }} className="flex flex-col md:flex-row gap-4">
+                <form onSubmit={(e) => { e.preventDefault(); searchRides() }} className="flex flex-col md:flex-row md:flex-wrap gap-4">
                   <div className="flex-1 relative">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input placeholder="Where do you want to go?" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
@@ -202,7 +222,7 @@ const Rides = () => {
                     </PopoverContent>
                   </Popover>
 
-                  <div className="flex items-center gap-2 md:w-[220px]">
+                  <div className="flex items-center gap-2 w-full md:w-auto md:flex-1">
                     <div className="relative flex-1">
                       <Clock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -241,8 +261,7 @@ const Rides = () => {
                       )}
                     </div>
                   </div>
-
-                  <Button type="submit" className="bg-gradient-primary hover:shadow-glow"><Search className="h-4 w-4 mr-2" />Search Rides</Button>
+                  <Button type="submit" className="w-full md:w-auto bg-gradient-primary hover:shadow-glow"><Search className="h-4 w-4 mr-2" />Search Rides</Button>
                 </form>
               </CardContent>
             </Card>
