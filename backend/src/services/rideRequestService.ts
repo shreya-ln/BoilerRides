@@ -1,0 +1,256 @@
+import { PostgrestError } from '@supabase/supabase-js'
+import { supabaseAdmin } from '../lib/supabaseClient'
+
+export type RideRequestStatus = 'pending' | 'matched' | 'cancelled'
+
+const friendlyError = (fallback: string, error?: PostgrestError | null) => {
+  const message = error?.message || fallback
+  const err = new Error(message)
+  err.name = error?.code || err.name
+  return err
+}
+
+const normalizeText = (value?: string | null) => (value || '').trim()
+
+const buildTokens = (value: string) => {
+  const term = normalizeText(value)
+  if (!term) return [] as string[]
+  const lower = term.toLowerCase()
+  const parts = lower.split(',').map(p => p.trim()).filter(Boolean)
+  const base = parts[0] || lower
+
+  const tokens = new Set<string>()
+  tokens.add(lower)
+  tokens.add(base)
+
+  return Array.from(tokens)
+}
+
+const includesAny = (value: string | null | undefined, tokens: string[]) => {
+  if (!value) return false
+  const lower = value.toLowerCase()
+  return tokens.some(t => lower.includes(t))
+}
+
+const validateDate = (rideDate: string) => {
+  if (!rideDate) throw new Error('rideDate is required')
+  const parsed = new Date(rideDate)
+  if (Number.isNaN(parsed.getTime())) throw new Error('Invalid ride date')
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const candidate = new Date(parsed)
+  candidate.setHours(0, 0, 0, 0)
+
+  if (candidate < today) {
+    throw new Error('Ride date cannot be in the past')
+  }
+}
+
+export const rideRequestService = {
+  async findSimilar(params: { origin: string; destination: string; rideDate: string; rideTime?: string | null }) {
+    const origin = normalizeText(params.origin)
+    const destination = normalizeText(params.destination)
+    const rideDate = normalizeText(params.rideDate)
+    const rideTime = normalizeText(params.rideTime || '') || null
+
+    if (!origin || !destination || !rideDate) {
+      throw new Error('origin, destination, and rideDate are required')
+    }
+
+    validateDate(rideDate)
+
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const currentTime = now.toTimeString().split(' ')[0]
+
+    // Build lenient tokens so "Purdue University" matches "Purdue University, West Lafayette"
+    // and "Chicago, IL" matches "Chicago, IL, USA".
+    const originTokens = buildTokens(origin)
+    const destinationTokens = buildTokens(destination)
+
+    let query = supabaseAdmin
+      .from('rides')
+      .select('*, profiles:driver_id(id, first_name, last_name, avatar_url)')
+      .eq('ride_date', rideDate)
+      .gt('seats_available', 0)
+
+    if (rideDate === today) {
+      query = query.gte('ride_time', currentTime)
+    }
+
+    const { data, error } = await query
+      .order('ride_date', { ascending: true })
+      .order('ride_time', { ascending: true })
+
+    if (error) {
+      throw friendlyError('Unable to search for similar rides', error)
+    }
+
+    const rides = data || []
+    const filtered = rides.filter(
+      ride => includesAny(ride.origin, originTokens) && includesAny(ride.destination, destinationTokens)
+    )
+
+    // Fetch similar ride requests within a 2-hour window of the desired time (if provided)
+    const { data: rideRequests, error: rideRequestError } = await supabaseAdmin
+      .from('ride_requests')
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .eq('ride_date', rideDate)
+      .not('status', 'eq', 'cancelled')
+      .order('ride_date', { ascending: true })
+      .order('ride_time', { ascending: true })
+
+    if (rideRequestError) {
+      throw friendlyError('Unable to search for similar ride requests', rideRequestError)
+    }
+
+    const withinTwoHours = (candidateTime?: string | null) => {
+      if (!rideTime || !candidateTime) return true
+      const base = new Date(`1970-01-01T${rideTime}:00Z`).getTime()
+      const candidate = new Date(`1970-01-01T${candidateTime}:00Z`).getTime()
+      const diffMs = Math.abs(base - candidate)
+      return diffMs <= 2 * 60 * 60 * 1000
+    }
+
+    const filteredRequests = (rideRequests || []).filter(req =>
+      includesAny(req.origin, originTokens) &&
+      includesAny(req.destination, destinationTokens) &&
+      withinTwoHours(req.ride_time)
+    )
+
+    return { rides: filtered, rideRequests: filteredRequests }
+  },
+
+  async listForRider(riderId: string) {
+    const { data, error } = await supabaseAdmin
+      .from('ride_requests')
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .eq('rider_id', riderId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      throw friendlyError('Unable to fetch ride requests', error)
+    }
+
+    return data ?? []
+  },
+
+  async create(params: {
+    riderId: string
+    origin: string
+    destination: string
+    rideDate: string
+    rideTime?: string | null
+    seats?: number
+    message?: string | null
+  }) {
+    const origin = normalizeText(params.origin)
+    const destination = normalizeText(params.destination)
+    const rideDate = normalizeText(params.rideDate)
+    const rideTime = normalizeText(params.rideTime || '') || null
+    const seats = Number(params.seats ?? 1)
+    const message = params.message ?? null
+
+    if (!origin) throw new Error('Origin is required')
+    if (!destination) throw new Error('Destination is required')
+    if (!rideDate) throw new Error('Ride date is required')
+    validateDate(rideDate)
+
+    if (!Number.isInteger(seats) || seats <= 0) {
+      throw new Error('Seats must be at least 1')
+    }
+
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('ride_requests')
+      .select('id, status')
+      .eq('rider_id', params.riderId)
+      .ilike('origin', origin)
+      .ilike('destination', destination)
+      .eq('ride_date', rideDate)
+      .in('status', ['pending', 'matched'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingError) {
+      throw friendlyError('Unable to check existing ride requests', existingError)
+    }
+
+    if (existing) {
+      throw new Error('You already have a request for this route and date')
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('ride_requests')
+      .insert({
+        rider_id: params.riderId,
+        origin,
+        destination,
+        ride_date: rideDate,
+        ride_time: rideTime,
+        seats,
+        message
+      })
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .single()
+
+    if (error || !data) {
+      throw friendlyError('Unable to create ride request', error)
+    }
+
+    return data
+  },
+
+  async joinRideRequest(params: { requestId: number; riderId: string }) {
+    const { requestId, riderId } = params
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new Error('Invalid ride request id')
+    }
+
+    const { data: request, error: fetchError } = await supabaseAdmin
+      .from('ride_requests')
+      .select('id, rider_id, interested_rider_ids, status')
+      .eq('id', requestId)
+      .maybeSingle()
+
+    if (fetchError) {
+      throw friendlyError('Unable to fetch ride request', fetchError)
+    }
+
+    if (!request) {
+      throw new Error('Ride request not found')
+    }
+
+    if (request.rider_id === riderId) {
+      throw new Error('You already own this ride request')
+    }
+
+    if (request.status === 'cancelled') {
+      throw new Error('Cannot join a cancelled ride request')
+    }
+
+    const existingList: string[] = Array.isArray(request.interested_rider_ids)
+      ? request.interested_rider_ids
+      : []
+
+    if (existingList.includes(riderId)) {
+      throw new Error('You already joined this ride request')
+    }
+
+    const updatedIds = Array.from(new Set([...existingList, riderId]))
+
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('ride_requests')
+      .update({ interested_rider_ids: updatedIds })
+      .eq('id', requestId)
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .single()
+
+    if (updateError || !updated) {
+      throw friendlyError('Unable to join ride request', updateError)
+    }
+
+    return updated
+  }
+}

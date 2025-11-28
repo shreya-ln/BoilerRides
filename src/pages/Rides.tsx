@@ -202,6 +202,17 @@ const Rides = () => {
           </TabsList>
 
           <TabsContent value="find" className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-secondary">Find rides</h3>
+                <p className="text-sm text-muted-foreground">Search rides or request a new one if you don’t see your route.</p>
+              </div>
+              <Button className="bg-gradient-primary hover:shadow-glow" onClick={() => navigate('/ride-requests/new')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Request a Ride
+              </Button>
+            </div>
+
             <Card>
               <CardContent className="p-6">
                 <form onSubmit={(e) => { e.preventDefault(); searchRides() }} className="flex flex-col md:flex-row md:flex-wrap gap-4">
