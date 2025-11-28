@@ -49,6 +49,10 @@ const RequestRide = () => {
   const [rideTime, setRideTime] = useState('')
   const [seats, setSeats] = useState('1')
   const [message, setMessage] = useState('')
+  const [originLat, setOriginLat] = useState<number | null>(null)
+  const [originLng, setOriginLng] = useState<number | null>(null)
+  const [destinationLat, setDestinationLat] = useState<number | null>(null)
+  const [destinationLng, setDestinationLng] = useState<number | null>(null)
 
   const [checkingSimilar, setCheckingSimilar] = useState(false)
   const [similarChecked, setSimilarChecked] = useState(false)
@@ -90,12 +94,25 @@ const RequestRide = () => {
     rideDate: rideDate ? format(rideDate, 'yyyy-MM-dd') : '',
     rideTime: rideTime || null,
     seats: Number(seats),
-    message: message.trim() || null
+    message: message.trim() || null,
+    originLat,
+    originLng,
+    destinationLat,
+    destinationLng
   })
 
   const handleCheckSimilar = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) return
+
+    if (originLat == null || originLng == null || destinationLat == null || destinationLng == null) {
+      toast({
+        title: 'Location required',
+        description: 'Please pick both From and To from the suggestions so we can compare nearby rides.',
+        variant: 'destructive'
+      })
+      return
+    }
 
     setCheckingSimilar(true)
     setSimilarChecked(false)
@@ -105,7 +122,11 @@ const RequestRide = () => {
         origin: payload.origin,
         destination: payload.destination,
         rideDate: payload.rideDate,
-        rideTime: rideTime || undefined
+        rideTime: rideTime || undefined,
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng
       })
       setSimilarRides(result?.rides || [])
       setSimilarRideRequests(result?.rideRequests || [])
@@ -392,9 +413,21 @@ const RequestRide = () => {
                       <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
                       <PlaceAutocomplete
                         placeholder="e.g., Purdue University"
-                        onPlaceSelect={(place) => place?.formatted_address && setOrigin(place.formatted_address)}
+                        onPlaceSelect={(place) => {
+                          if (place?.formatted_address) {
+                            setOrigin(place.formatted_address)
+                          }
+                          const lat = place?.geometry?.location?.lat?.()
+                          const lng = place?.geometry?.location?.lng?.()
+                          setOriginLat(typeof lat === 'number' ? lat : null)
+                          setOriginLng(typeof lng === 'number' ? lng : null)
+                        }}
                         value={origin}
-                        onChange={setOrigin}
+                        onChange={(val) => {
+                          setOrigin(val)
+                          setOriginLat(null)
+                          setOriginLng(null)
+                        }}
                         className={`${fieldErrors.origin ? 'border-destructive' : ''}`}
                       />
                     </div>
@@ -407,9 +440,21 @@ const RequestRide = () => {
                       <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground z-10" />
                       <PlaceAutocomplete
                         placeholder="e.g., Indianapolis"
-                        onPlaceSelect={(place) => place?.formatted_address && setDestination(place.formatted_address)}
+                        onPlaceSelect={(place) => {
+                          if (place?.formatted_address) {
+                            setDestination(place.formatted_address)
+                          }
+                          const lat = place?.geometry?.location?.lat?.()
+                          const lng = place?.geometry?.location?.lng?.()
+                          setDestinationLat(typeof lat === 'number' ? lat : null)
+                          setDestinationLng(typeof lng === 'number' ? lng : null)
+                        }}
                         value={destination}
-                        onChange={setDestination}
+                        onChange={(val) => {
+                          setDestination(val)
+                          setDestinationLat(null)
+                          setDestinationLng(null)
+                        }}
                         className={`${fieldErrors.destination ? 'border-destructive' : ''}`}
                       />
                     </div>

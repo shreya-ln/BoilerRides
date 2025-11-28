@@ -8,6 +8,10 @@ export interface Ride {
   updated_at: string
   origin: string
   destination: string
+  origin_lat?: number | null
+  origin_lng?: number | null
+  destination_lat?: number | null
+  destination_lng?: number | null
   ride_date: string
   ride_time: string
   duration: string | null
@@ -24,6 +28,10 @@ export interface Ride {
 export interface CreateRideInput {
   origin: string
   destination: string
+  origin_lat?: number | null
+  origin_lng?: number | null
+  destination_lat?: number | null
+  destination_lng?: number | null
   ride_date: string // yyyy-MM-dd
   ride_time: string // HH:mm
   price: number
@@ -261,5 +269,3 @@ export const ridesService = {
     }
   },
 }
-
-

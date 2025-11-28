@@ -6,7 +6,7 @@ const router = Router()
 
 router.get('/similar', requireAuth, async (req, res) => {
   try {
-    const { origin, destination, rideDate, rideTime } = req.query
+    const { origin, destination, rideDate, rideTime, originLat, originLng, destinationLat, destinationLng } = req.query
     if (!origin || !destination || !rideDate) {
       return res.status(400).json({ message: 'origin, destination, and rideDate are required' })
     }
@@ -15,7 +15,11 @@ router.get('/similar', requireAuth, async (req, res) => {
       origin: String(origin),
       destination: String(destination),
       rideDate: String(rideDate),
-      rideTime: rideTime ? String(rideTime) : undefined
+      rideTime: rideTime ? String(rideTime) : undefined,
+      originLat: originLat !== undefined ? Number(originLat) : undefined,
+      originLng: originLng !== undefined ? Number(originLng) : undefined,
+      destinationLat: destinationLat !== undefined ? Number(destinationLat) : undefined,
+      destinationLng: destinationLng !== undefined ? Number(destinationLng) : undefined
     })
 
     return res.json(result)
@@ -39,7 +43,18 @@ router.get('/me', requireAuth, async (req, res) => {
 
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { origin, destination, rideDate, rideTime, seats = 1, message } = req.body
+    const {
+      origin,
+      destination,
+      rideDate,
+      rideTime,
+      seats = 1,
+      message,
+      originLat,
+      originLng,
+      destinationLat,
+      destinationLng
+    } = req.body
     const result = await rideRequestService.create({
       riderId: req.user!.id,
       origin,
@@ -47,7 +62,11 @@ router.post('/', requireAuth, async (req, res) => {
       rideDate,
       rideTime,
       seats: Number(seats),
-      message
+      message,
+      originLat: originLat !== undefined ? Number(originLat) : null,
+      originLng: originLng !== undefined ? Number(originLng) : null,
+      destinationLat: destinationLat !== undefined ? Number(destinationLat) : null,
+      destinationLng: destinationLng !== undefined ? Number(destinationLng) : null
     })
 
     return res.status(201).json(result)

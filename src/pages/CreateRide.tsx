@@ -52,6 +52,10 @@ const CreateRide = () => {
   const [rideTime, setRideTime] = useState('')
   const [price, setPrice] = useState('')
   const [totalSeats, setTotalSeats] = useState('')
+  const [originLat, setOriginLat] = useState<number | null>(null)
+  const [originLng, setOriginLng] = useState<number | null>(null)
+  const [destinationLat, setDestinationLat] = useState<number | null>(null)
+  const [destinationLng, setDestinationLng] = useState<number | null>(null)
   const [carType, setCarType] = useState('')
   const [carNotes, setCarNotes] = useState('')
   const [specialMoment, setSpecialMoment] = useState('')
@@ -76,6 +80,10 @@ const CreateRide = () => {
       setRideTime(data.ride_time || '')
       setPrice(String(data.price ?? ''))
       setTotalSeats(String(data.total_seats ?? ''))
+      setOriginLat((data as any).origin_lat ?? null)
+      setOriginLng((data as any).origin_lng ?? null)
+      setDestinationLat((data as any).destination_lat ?? null)
+      setDestinationLng((data as any).destination_lng ?? null)
       setCarType(data.car_type || '')
       setCarNotes(data.car_notes || '')
       setSpecialMoment(data.special_moment || '')
@@ -88,6 +96,10 @@ const CreateRide = () => {
     if (place?.formatted_address) {
       setOrigin(place.formatted_address)
     }
+    const lat = place?.geometry?.location?.lat?.()
+    const lng = place?.geometry?.location?.lng?.()
+    setOriginLat(typeof lat === 'number' ? lat : null)
+    setOriginLng(typeof lng === 'number' ? lng : null)
   }
 
   // Handle place selection for destination
@@ -95,6 +107,10 @@ const CreateRide = () => {
     if (place?.formatted_address) {
       setDestination(place.formatted_address)
     }
+    const lat = place?.geometry?.location?.lat?.()
+    const lng = place?.geometry?.location?.lng?.()
+    setDestinationLat(typeof lat === 'number' ? lat : null)
+    setDestinationLng(typeof lng === 'number' ? lng : null)
   }
 
   // Validate form fields
@@ -147,6 +163,10 @@ const CreateRide = () => {
       car_type: carType.trim() || null,
       car_notes: carNotes.trim() || null,
       special_moment: specialMoment.trim() || null,
+      origin_lat: originLat,
+      origin_lng: originLng,
+      destination_lat: destinationLat,
+      destination_lng: destinationLng
     }
 
     const { data, error } = editingId
@@ -205,7 +225,7 @@ const CreateRide = () => {
                         onPlaceSelect={handleOriginSelect}
                         placeholder="e.g., West Lafayette"
                         value={origin}
-                        onChange={setOrigin}
+                        onChange={(val) => { setOrigin(val); setOriginLat(null); setOriginLng(null); }}
                         className={`${fieldErrors.origin ? 'border-destructive' : ''}`}
                       />
                     </div>
@@ -226,7 +246,7 @@ const CreateRide = () => {
                         onPlaceSelect={handleDestinationSelect}
                         placeholder="e.g., Indianapolis"
                         value={destination}
-                        onChange={setDestination}
+                        onChange={(val) => { setDestination(val); setDestinationLat(null); setDestinationLng(null); }}
                         className={`${fieldErrors.destination ? 'border-destructive' : ''}`}
                       />
                     </div>
@@ -398,5 +418,3 @@ const CreateRide = () => {
 }
 
 export default CreateRide
-
-

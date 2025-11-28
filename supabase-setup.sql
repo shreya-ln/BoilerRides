@@ -206,3 +206,25 @@ CREATE POLICY "Drivers can view requests for their rides"
               AND rides.driver_id = auth.uid()
         )
     );
+
+-- === Proximity columns (origin latitude/longitude for rides and ride requests) ===
+-- Add coordinates to support proximity matching (e.g., within 2 miles for similar rides/requests)
+ALTER TABLE IF EXISTS rides
+  ADD COLUMN IF NOT EXISTS origin_lat double precision,
+  ADD COLUMN IF NOT EXISTS origin_lng double precision,
+  ADD COLUMN IF NOT EXISTS destination_lat double precision,
+  ADD COLUMN IF NOT EXISTS destination_lng double precision;
+
+ALTER TABLE IF EXISTS ride_requests
+  ADD COLUMN IF NOT EXISTS origin_lat double precision,
+  ADD COLUMN IF NOT EXISTS origin_lng double precision,
+  ADD COLUMN IF NOT EXISTS destination_lat double precision,
+  ADD COLUMN IF NOT EXISTS destination_lng double precision,
+  ADD COLUMN IF NOT EXISTS interested_rider_ids uuid[] NOT NULL DEFAULT '{}';
+
+-- Optional indexes for faster geo-ish lookups (bounding box filters)
+CREATE INDEX IF NOT EXISTS idx_rides_origin_lat_lng ON rides(origin_lat, origin_lng);
+CREATE INDEX IF NOT EXISTS idx_rides_destination_lat_lng ON rides(destination_lat, destination_lng);
+CREATE INDEX IF NOT EXISTS idx_ride_requests_origin_lat_lng ON ride_requests(origin_lat, origin_lng);
+CREATE INDEX IF NOT EXISTS idx_ride_requests_destination_lat_lng ON ride_requests(destination_lat, destination_lng);
+CREATE INDEX IF NOT EXISTS idx_ride_requests_interested_ids_gin ON ride_requests USING gin (interested_rider_ids);

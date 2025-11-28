@@ -32,6 +32,18 @@ const includesAny = (value: string | null | undefined, tokens: string[]) => {
   return tokens.some(t => lower.includes(t))
 }
 
+const toRad = (v: number) => (v * Math.PI) / 180
+const haversineMeters = (aLat: number, aLng: number, bLat: number, bLng: number) => {
+  const R = 6371000 // meters
+  const dLat = toRad(bLat - aLat)
+  const dLng = toRad(bLng - aLng)
+  const sa =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2
+  const c = 2 * Math.atan2(Math.sqrt(sa), Math.sqrt(1 - sa))
+  return R * c
+}
+
 const validateDate = (rideDate: string) => {
   if (!rideDate) throw new Error('rideDate is required')
   const parsed = new Date(rideDate)
@@ -48,14 +60,33 @@ const validateDate = (rideDate: string) => {
 }
 
 export const rideRequestService = {
-  async findSimilar(params: { origin: string; destination: string; rideDate: string; rideTime?: string | null }) {
+  async findSimilar(params: {
+    origin: string
+    destination: string
+    rideDate: string
+    rideTime?: string | null
+    originLat?: number | null
+    originLng?: number | null
+    destinationLat?: number | null
+    destinationLng?: number | null
+  }) {
     const origin = normalizeText(params.origin)
     const destination = normalizeText(params.destination)
     const rideDate = normalizeText(params.rideDate)
     const rideTime = normalizeText(params.rideTime || '') || null
+    const originLat = params.originLat
+    const originLng = params.originLng
+    const destinationLat = params.destinationLat
+    const destinationLng = params.destinationLng
 
     if (!origin || !destination || !rideDate) {
       throw new Error('origin, destination, and rideDate are required')
+    }
+
+    const haveOriginCoords = typeof originLat === 'number' && typeof originLng === 'number'
+    const haveDestinationCoords = typeof destinationLat === 'number' && typeof destinationLng === 'number'
+    if (!haveOriginCoords || !haveDestinationCoords) {
+      throw new Error('Geo coordinates are required for origin and destination to find similar rides')
     }
 
     validateDate(rideDate)
@@ -88,9 +119,18 @@ export const rideRequestService = {
     }
 
     const rides = data || []
-    const filtered = rides.filter(
-      ride => includesAny(ride.origin, originTokens) && includesAny(ride.destination, destinationTokens)
-    )
+    const distanceThresholdMeters = 3218.69 // 2 miles
+    const filtered = rides.filter(ride => {
+      const haveRideOrigin =
+        typeof ride.origin_lat === 'number' && typeof ride.origin_lng === 'number'
+      const haveRideDestination =
+        typeof ride.destination_lat === 'number' && typeof ride.destination_lng === 'number'
+      if (!haveRideOrigin || !haveRideDestination) return false
+
+      const originDist = haversineMeters(originLat!, originLng!, ride.origin_lat, ride.origin_lng)
+      const destDist = haversineMeters(destinationLat!, destinationLng!, ride.destination_lat, ride.destination_lng)
+      return originDist <= distanceThresholdMeters && destDist <= distanceThresholdMeters
+    })
 
     // Fetch similar ride requests within a 2-hour window of the desired time (if provided)
     const { data: rideRequests, error: rideRequestError } = await supabaseAdmin
@@ -113,11 +153,18 @@ export const rideRequestService = {
       return diffMs <= 2 * 60 * 60 * 1000
     }
 
-    const filteredRequests = (rideRequests || []).filter(req =>
-      includesAny(req.origin, originTokens) &&
-      includesAny(req.destination, destinationTokens) &&
-      withinTwoHours(req.ride_time)
-    )
+    const filteredRequests = (rideRequests || []).filter(req => {
+      const haveReqOrigin =
+        typeof req.origin_lat === 'number' && typeof req.origin_lng === 'number'
+      const haveReqDest =
+        typeof req.destination_lat === 'number' && typeof req.destination_lng === 'number'
+      if (!haveReqOrigin || !haveReqDest) return false
+
+      const originDist = haversineMeters(originLat!, originLng!, req.origin_lat, req.origin_lng)
+      const destDist = haversineMeters(destinationLat!, destinationLng!, req.destination_lat, req.destination_lng)
+
+      return originDist <= distanceThresholdMeters && destDist <= distanceThresholdMeters && withinTwoHours(req.ride_time)
+    })
 
     return { rides: filtered, rideRequests: filteredRequests }
   },
@@ -144,6 +191,10 @@ export const rideRequestService = {
     rideTime?: string | null
     seats?: number
     message?: string | null
+    originLat?: number | null
+    originLng?: number | null
+    destinationLat?: number | null
+    destinationLng?: number | null
   }) {
     const origin = normalizeText(params.origin)
     const destination = normalizeText(params.destination)
@@ -190,7 +241,11 @@ export const rideRequestService = {
         ride_date: rideDate,
         ride_time: rideTime,
         seats,
-        message
+        message,
+        origin_lat: params.originLat ?? null,
+        origin_lng: params.originLng ?? null,
+        destination_lat: params.destinationLat ?? null,
+        destination_lng: params.destinationLng ?? null
       })
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .single()

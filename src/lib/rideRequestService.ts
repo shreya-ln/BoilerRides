@@ -30,6 +30,10 @@ export interface RideRequestInput {
   rideTime?: string | null
   seats?: number
   message?: string | null
+  originLat?: number | null
+  originLng?: number | null
+  destinationLat?: number | null
+  destinationLng?: number | null
 }
 
 export const rideRequestService = {
@@ -37,7 +41,16 @@ export const rideRequestService = {
     return apiClient.post<RideRequest>('/api/ride-requests', payload)
   },
 
-  async findSimilar(params: { origin: string; destination: string; rideDate: string; rideTime?: string | null }) {
+  async findSimilar(params: {
+    origin: string
+    destination: string
+    rideDate: string
+    rideTime?: string | null
+    originLat?: number | null
+    originLng?: number | null
+    destinationLat?: number | null
+    destinationLng?: number | null
+  }) {
     const searchParams = new URLSearchParams({
       origin: params.origin,
       destination: params.destination,
@@ -46,6 +59,18 @@ export const rideRequestService = {
 
     if (params.rideTime) {
       searchParams.set('rideTime', params.rideTime)
+    }
+    if (typeof params.originLat === 'number') {
+      searchParams.set('originLat', String(params.originLat))
+    }
+    if (typeof params.originLng === 'number') {
+      searchParams.set('originLng', String(params.originLng))
+    }
+    if (typeof params.destinationLat === 'number') {
+      searchParams.set('destinationLat', String(params.destinationLat))
+    }
+    if (typeof params.destinationLng === 'number') {
+      searchParams.set('destinationLng', String(params.destinationLng))
     }
 
     return apiClient.get<{ rides: any[]; rideRequests: RideRequest[] }>(`/api/ride-requests/similar?${searchParams.toString()}`)
