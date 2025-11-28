@@ -16,6 +16,8 @@ import { ridesService, CreateRideInput } from '@/lib/ridesService'
 import { useAuth } from '@/hooks/useAuth'
 import { APIProvider } from '@vis.gl/react-google-maps'
 import PlaceAutocomplete from '@/components/PlaceAutocomplete'
+import { rideRequestService, RideRequest } from '@/lib/rideRequestService'
+import { profileService } from '@/lib/profileService'
 
 // Form default popular presets for dates (e.g., next weekend)
 function getPopularDatePresets(): { label: string; value: Date }[] {
@@ -44,7 +46,12 @@ const CreateRide = () => {
   const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const rideIdParam = searchParams.get('id')
+  const rideRequestIdParam = searchParams.get('rideRequestId')
   const editingId = rideIdParam ? Number(rideIdParam) : null
+  const fromRequestId = rideRequestIdParam ? Number(rideRequestIdParam) : null
+  const [rideRequest, setRideRequest] = useState<RideRequest | null>(null)
+  const [inviteRiderIds, setInviteRiderIds] = useState<string[]>([])
+  const [inviteProfiles, setInviteProfiles] = useState<Record<string, any>>({})
 
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
@@ -90,6 +97,52 @@ const CreateRide = () => {
     }
     loadRide()
   }, [editingId, toast])
+
+  useEffect(() => {
+    const loadRequest = async () => {
+      if (!fromRequestId) return
+      try {
+        const req = await rideRequestService.getById(fromRequestId)
+        if (!req) return
+        setRideRequest(req)
+        setOrigin(req.origin || '')
+        setDestination(req.destination || '')
+        setRideDate(req.ride_date ? new Date(req.ride_date) : null)
+        setRideTime(req.ride_time || '')
+        setTotalSeats(String(req.seats || ''))
+        setOriginLat((req as any).origin_lat ?? null)
+        setOriginLng((req as any).origin_lng ?? null)
+        setDestinationLat((req as any).destination_lat ?? null)
+        setDestinationLng((req as any).destination_lng ?? null)
+        setInviteRiderIds(Array.from(new Set([req.rider_id, ...(req.interested_rider_ids || [])])))
+      } catch (e) {
+        console.error('Failed to load ride request', e)
+      }
+    }
+    loadRequest()
+  }, [fromRequestId])
+
+  useEffect(() => {
+    const loadProfiles = async () => {
+      if (!inviteRiderIds.length) {
+        setInviteProfiles({})
+        return
+      }
+      const entries: Record<string, any> = {}
+      await Promise.all(
+        inviteRiderIds.map(async (id) => {
+          try {
+            const { data } = await profileService.getProfile(id)
+            if (data) entries[id] = data
+          } catch (e) {
+            /* ignore missing profile */
+          }
+        })
+      )
+      setInviteProfiles(entries)
+    }
+    loadProfiles()
+  }, [inviteRiderIds])
 
   // Handle place selection for origin
   const handleOriginSelect = (place: google.maps.places.PlaceResult | null) => {
@@ -167,6 +220,19 @@ const CreateRide = () => {
       origin_lng: originLng,
       destination_lat: destinationLat,
       destination_lng: destinationLng
+    }
+
+    if (fromRequestId && !editingId) {
+      try {
+        const result = await rideRequestService.createRideFromRequest(fromRequestId, input, inviteRiderIds)
+        toast({ title: 'Ride created', description: 'Invites sent to selected riders.' })
+        navigate('/rides')
+      } catch (err: any) {
+        toast({ title: 'Failed to save ride', description: err?.message || 'Please try again.', variant: 'destructive' })
+      } finally {
+        setSubmitting(false)
+      }
+      return
     }
 
     const { data, error } = editingId
@@ -352,6 +418,50 @@ const CreateRide = () => {
                 <Label htmlFor="specialMoment">Special Occasion (optional)</Label>
                 <Input id="specialMoment" placeholder="e.g., Artist Concert, Away Basketball Game" value={specialMoment} onChange={(e) => setSpecialMoment(e.target.value)} />
               </div>
+
+              {fromRequestId && (
+                <div className="space-y-2 border rounded-md p-4">
+                  <p className="font-semibold text-secondary">Invite riders from this request</p>
+                  <p className="text-sm text-muted-foreground">Select which riders to invite. They will need to accept their spot.</p>
+                  <div className="flex flex-col gap-2">
+                    {inviteRiderIds.map((id) => {
+                      const isRequester = id === rideRequest?.rider_id
+                      const profile = inviteProfiles[id]
+                      const label = profile
+                        ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || 'Rider'
+                        : isRequester
+                          ? `${rideRequest?.profiles?.first_name ?? ''} ${rideRequest?.profiles?.last_name ?? ''}`.trim() || 'Requesting rider'
+                          : 'Interested rider'
+                      const checked = inviteRiderIds.includes(id)
+                      return (
+                        <label key={id} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setInviteRiderIds((prev) => Array.from(new Set([...prev, id])))
+                              } else {
+                                setInviteRiderIds((prev) => prev.filter((r) => r !== id))
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="text-primary underline underline-offset-2"
+                            onClick={() => navigate(`/profiles/${id}`)}
+                          >
+                            {label}{isRequester ? ' (requester)' : ''}
+                          </button>
+                        </label>
+                      )
+                    })}
+                    {inviteRiderIds.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No riders selected.</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="carNotes">Notes (luggage, rules, pickup details)</Label>

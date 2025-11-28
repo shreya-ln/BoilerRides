@@ -44,6 +44,28 @@ const haversineMeters = (aLat: number, aLng: number, bLat: number, bLng: number)
   return R * c
 }
 
+const buildRidePayloadFromRequest = (req: any, driverId: string, overrides: any) => {
+  const rideDate = overrides.ride_date || req.ride_date
+  const rideTime = overrides.ride_time || req.ride_time || '12:00'
+  return {
+    origin: overrides.origin || req.origin,
+    destination: overrides.destination || req.destination,
+    origin_lat: overrides.origin_lat ?? req.origin_lat ?? null,
+    origin_lng: overrides.origin_lng ?? req.origin_lng ?? null,
+    destination_lat: overrides.destination_lat ?? req.destination_lat ?? null,
+    destination_lng: overrides.destination_lng ?? req.destination_lng ?? null,
+    ride_date: rideDate,
+    ride_time: rideTime,
+    price: overrides.price || 0,
+    total_seats: overrides.total_seats || req.seats || 1,
+    seats_available: overrides.total_seats || req.seats || 1,
+    driver_id: driverId,
+    car_type: overrides.car_type ?? null,
+    car_notes: overrides.car_notes ?? null,
+    special_moment: overrides.special_moment ?? null
+  }
+}
+
 const validateDate = (rideDate: string) => {
   if (!rideDate) throw new Error('rideDate is required')
   const parsed = new Date(rideDate)
@@ -183,6 +205,32 @@ export const rideRequestService = {
     return data ?? []
   },
 
+  async listAll(viewerId: string) {
+    const { data, error } = await supabaseAdmin
+      .from('ride_requests')
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .eq('is_completed', false)
+      .neq('rider_id', viewerId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      throw friendlyError('Unable to fetch ride requests', error)
+    }
+
+    return data ?? []
+  },
+
+  async getById(id: number) {
+    const { data, error } = await supabaseAdmin
+      .from('ride_requests')
+      .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (error) throw friendlyError('Unable to load ride request', error)
+    return data
+  },
+
   async create(params: {
     riderId: string
     origin: string
@@ -245,7 +293,8 @@ export const rideRequestService = {
         origin_lat: params.originLat ?? null,
         origin_lng: params.originLng ?? null,
         destination_lat: params.destinationLat ?? null,
-        destination_lng: params.destinationLng ?? null
+        destination_lng: params.destinationLng ?? null,
+        interested_rider_ids: [params.riderId] // seed creator as interested
       })
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .single()
@@ -307,5 +356,86 @@ export const rideRequestService = {
     }
 
     return updated
+  },
+
+  async cancelMyRequest(requestId: number, riderId: string) {
+    if (!Number.isInteger(requestId) || requestId <= 0) throw new Error('Invalid ride request id')
+
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+      .from('ride_requests')
+      .select('id, rider_id, status, interested_rider_ids, is_completed')
+      .eq('id', requestId)
+      .maybeSingle()
+    if (fetchErr) throw friendlyError('Unable to load ride request', fetchErr)
+    if (!existing) throw new Error('Ride request not found')
+    if (existing.rider_id !== riderId) throw new Error('Unauthorized')
+    if (existing.status === 'cancelled') throw new Error('Request already cancelled')
+
+    const interested = Array.isArray(existing.interested_rider_ids)
+      ? existing.interested_rider_ids
+      : []
+    const filteredInterested = interested.filter((id: any) => id !== riderId)
+    const shouldComplete = filteredInterested.length === 0
+
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from('ride_requests')
+      .update({
+        status: 'cancelled',
+        interested_rider_ids: filteredInterested,
+        is_completed: shouldComplete ? true : existing.is_completed
+      })
+      .eq('id', requestId)
+      .select()
+      .single()
+    if (updateErr || !updated) throw friendlyError('Unable to cancel request', updateErr)
+    return updated
+  },
+
+  async createRideFromRequest(params: {
+    requestId: number
+    driverId: string
+    rideOverrides: any
+    inviteRiderIds?: string[]
+  }) {
+    const { requestId, driverId, rideOverrides, inviteRiderIds } = params
+    if (!Number.isInteger(requestId) || requestId <= 0) throw new Error('Invalid ride request id')
+
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from('ride_requests')
+      .select('*')
+      .eq('id', requestId)
+      .maybeSingle()
+    if (requestError) throw friendlyError('Unable to load ride request', requestError)
+    if (!request) throw new Error('Ride request not found')
+    if (request.status === 'cancelled') throw new Error('Ride request is cancelled')
+
+    const payload = buildRidePayloadFromRequest(request, driverId, rideOverrides || {})
+    const { data: ride, error: rideError } = await supabaseAdmin
+      .from('rides')
+      .insert(payload)
+      .select('*')
+      .single()
+    if (rideError || !ride) throw friendlyError('Unable to create ride', rideError)
+
+    // Seed invites for selected riders (default: interested list)
+    const ridersToInvite = Array.from(
+      new Set(
+        ((inviteRiderIds && inviteRiderIds.length ? inviteRiderIds : request.interested_rider_ids) || []).filter(
+          (id: any) => typeof id === 'string' && id.length > 0
+        )
+      )
+    )
+    if (ridersToInvite.length) {
+      const inviteRows = ridersToInvite.map(riderId => ({
+        ride_id: ride.id,
+        ride_request_id: requestId,
+        rider_id: riderId,
+        status: 'pending'
+      }))
+      const { error: inviteError } = await supabaseAdmin.from('ride_invites').insert(inviteRows)
+      if (inviteError) throw friendlyError('Ride created but failed to invite riders', inviteError)
+    }
+
+    return { ride, invites: ridersToInvite.length }
   }
 }

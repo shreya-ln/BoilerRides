@@ -15,6 +15,8 @@ import CreateRide from "./pages/CreateRide";
 import ColorShowcase from "./pages/ColorShowcase";
 import NotFound from "./pages/NotFound";
 import ViewProfile from "./pages/ViewProfile";
+import RideRequests from "./pages/RideRequests";
+import RideInvites from "./pages/RideInvites";
 import RequestRide from "./pages/RequestRide";
 
 const queryClient = new QueryClient();
@@ -53,6 +55,21 @@ const App = () => (
             <Route path="/rides/create" element={
               <ProtectedRoute requireProfile>
                 <CreateRide />
+              </ProtectedRoute>
+            } />
+            <Route path="/ride-requests" element={
+              <ProtectedRoute requireProfile>
+                <RideRequests />
+              </ProtectedRoute>
+            } />
+            <Route path="/ride-invites" element={
+              <ProtectedRoute requireProfile>
+                <RideInvites />
+              </ProtectedRoute>
+            } />
+            <Route path="/ride-invites/ride/:rideId" element={
+              <ProtectedRoute requireProfile>
+                <RideInvites />
               </ProtectedRoute>
             } />
             <Route path="/ride-requests/new" element={

@@ -5,6 +5,7 @@ import { env } from './config/env'
 import profileRoutes from './routes/profileRoutes'
 import joinRequestRoutes from './routes/joinRequestRoutes'
 import ridesRoutes from './routes/ridesRoutes'
+import rideInviteRoutes from './routes/rideInviteRoutes'
 import rideRequestRoutes from './routes/rideRequestRoutes'
 
 const app = express()
@@ -26,6 +27,7 @@ app.get('/health', (_req, res) => {
 app.use('/api/profiles', profileRoutes)
 app.use('/api/join-requests', joinRequestRoutes)
 app.use('/api/ride-requests', rideRequestRoutes)
+app.use('/api/ride-invites', rideInviteRoutes)
 app.use('/api/rides', ridesRoutes)
 
 app.use((req, res) => {

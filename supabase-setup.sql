@@ -220,7 +220,8 @@ ALTER TABLE IF EXISTS ride_requests
   ADD COLUMN IF NOT EXISTS origin_lng double precision,
   ADD COLUMN IF NOT EXISTS destination_lat double precision,
   ADD COLUMN IF NOT EXISTS destination_lng double precision,
-  ADD COLUMN IF NOT EXISTS interested_rider_ids uuid[] NOT NULL DEFAULT '{}';
+  ADD COLUMN IF NOT EXISTS interested_rider_ids uuid[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS is_completed boolean NOT NULL DEFAULT false;
 
 -- Optional indexes for faster geo-ish lookups (bounding box filters)
 CREATE INDEX IF NOT EXISTS idx_rides_origin_lat_lng ON rides(origin_lat, origin_lng);
@@ -228,3 +229,33 @@ CREATE INDEX IF NOT EXISTS idx_rides_destination_lat_lng ON rides(destination_la
 CREATE INDEX IF NOT EXISTS idx_ride_requests_origin_lat_lng ON ride_requests(origin_lat, origin_lng);
 CREATE INDEX IF NOT EXISTS idx_ride_requests_destination_lat_lng ON ride_requests(destination_lat, destination_lng);
 CREATE INDEX IF NOT EXISTS idx_ride_requests_interested_ids_gin ON ride_requests USING gin (interested_rider_ids);
+
+-- === Ride invites (driver-created invites to riders for a specific ride) ===
+CREATE TABLE IF NOT EXISTS ride_invites (
+    id bigserial primary key,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    ride_id bigint not null references rides(id) on delete cascade,
+    ride_request_id bigint references ride_requests(id) on delete set null,
+    rider_id uuid not null references profiles(id) on delete cascade,
+    status text not null default 'pending' check (status in ('pending','accepted','declined')),
+    unique (ride_id, rider_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ride_invites_ride_id ON ride_invites(ride_id);
+CREATE INDEX IF NOT EXISTS idx_ride_invites_rider_id ON ride_invites(rider_id);
+CREATE INDEX IF NOT EXISTS idx_ride_invites_request_id ON ride_invites(ride_request_id);
+
+CREATE OR REPLACE FUNCTION public.set_ride_invites_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_ride_invites_updated_at ON ride_invites;
+CREATE TRIGGER set_ride_invites_updated_at
+BEFORE UPDATE ON ride_invites
+FOR EACH ROW
+EXECUTE PROCEDURE public.set_ride_invites_updated_at();

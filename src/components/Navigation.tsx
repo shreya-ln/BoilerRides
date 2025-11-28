@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Train, Home, Car, User, LogOut } from "lucide-react";
+import { Train, Home, Car, User, LogOut, ScrollText, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavigationProps {
@@ -14,6 +14,8 @@ const Navigation = ({ isLoggedIn = false, onSignOut }: NavigationProps) => {
   const navItems = [
     { to: "/dashboard", label: "Home", icon: Home },
     { to: "/rides", label: "Rides", icon: Car },
+    { to: "/ride-requests", label: "Ride Requests", icon: ScrollText },
+    { to: "/ride-invites", label: "Ride Invites", icon: Users2 },
     { to: "/profile", label: "Profile", icon: User },
   ];
 

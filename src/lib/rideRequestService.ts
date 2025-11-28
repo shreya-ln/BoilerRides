@@ -14,6 +14,8 @@ export interface RideRequest {
   message: string | null
   created_at: string
   updated_at: string
+  interested_rider_ids?: string[]
+  is_completed?: boolean
   profiles?: {
     id: string
     first_name: string | null
@@ -82,5 +84,24 @@ export const rideRequestService = {
 
   async joinRideRequest(requestId: number): Promise<RideRequest> {
     return apiClient.post<RideRequest>(`/api/ride-requests/${requestId}/join`)
+  },
+
+  async cancel(requestId: number): Promise<RideRequest> {
+    return apiClient.post<RideRequest>(`/api/ride-requests/${requestId}/cancel`)
+  },
+
+  async listAll(): Promise<RideRequest[]> {
+    return apiClient.get<RideRequest[]>('/api/ride-requests/all')
+  },
+
+  async getById(id: number): Promise<RideRequest> {
+    return apiClient.get<RideRequest>(`/api/ride-requests/${id}`)
+  },
+
+  async createRideFromRequest(requestId: number, rideOverrides: any, inviteRiderIds?: string[]) {
+    return apiClient.post<{ ride: any; invites: number }>(`/api/ride-requests/${requestId}/create-ride`, {
+      rideOverrides,
+      inviteRiderIds
+    })
   }
 }
