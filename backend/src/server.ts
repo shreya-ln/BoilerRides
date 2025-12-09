@@ -7,6 +7,8 @@ import joinRequestRoutes from './routes/joinRequestRoutes'
 import ridesRoutes from './routes/ridesRoutes'
 import rideInviteRoutes from './routes/rideInviteRoutes'
 import rideRequestRoutes from './routes/rideRequestRoutes'
+import waitlistRoutes from './routes/waitlistRoutes'
+import blockRoutes from './routes/blockRoutes'
 
 const app = express()
 const origins = env.corsOrigin.split(',').map(origin => origin.trim())
@@ -29,6 +31,8 @@ app.use('/api/join-requests', joinRequestRoutes)
 app.use('/api/ride-requests', rideRequestRoutes)
 app.use('/api/ride-invites', rideInviteRoutes)
 app.use('/api/rides', ridesRoutes)
+app.use('/api/waitlist', waitlistRoutes)
+app.use('/api/blocks', blockRoutes)
 
 app.use((req, res) => {
   res.status(404).json({ message: `Route ${req.path} not found` })

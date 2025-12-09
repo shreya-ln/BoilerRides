@@ -19,7 +19,15 @@ export const rideInviteService = {
       .order('created_at', { ascending: false })
 
     if (error) throw friendlyError('Unable to load invites', error)
-    return data || []
+    
+    // Filter out invites for inactive rides
+    const filtered = (data || []).filter((invite: any) => {
+      const ride = invite.rides
+      if (!ride || !ride.origin) return false
+      return !ride.origin.startsWith('~')
+    })
+    
+    return filtered
   },
 
   async listForDriver(driverId: string) {
@@ -81,11 +89,18 @@ export const rideInviteService = {
     // Load ride for seat check
     const { data: ride, error: rideError } = await supabaseAdmin
       .from('rides')
-      .select('id, seats_available, price, driver_id')
+      .select('id, seats_available, price, driver_id, origin')
       .eq('id', invite.ride_id)
       .maybeSingle()
     if (rideError) throw friendlyError('Unable to load ride', rideError)
     if (!ride) throw new Error('Ride not found')
+    
+    // Check if ride is active (not marked as deleted)
+    const origin = ride.origin || ''
+    if (origin.startsWith('~')) {
+      throw new Error('Ride is no longer available')
+    }
+    
     const seatsAvailable = Number(ride.seats_available ?? 0)
     if (seatsAvailable < 1) throw new Error('No seats available')
 

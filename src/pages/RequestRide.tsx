@@ -476,7 +476,24 @@ const RequestRide = () => {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="p-0" align="start">
-                        <Calendar mode="single" selected={rideDate} onSelect={setRideDate} initialFocus />
+                        <Calendar 
+                          mode="single" 
+                          selected={rideDate} 
+                          onSelect={(d) => {
+                            setRideDate(d || null)
+                            if (fieldErrors.rideDate) setFieldErrors({ ...fieldErrors, rideDate: '' })
+                          }} 
+                          disabled={(date) => {
+                            // Disable dates before today
+                            const today = new Date()
+                            today.setHours(0, 0, 0, 0)
+                            return date < today
+                          }}
+                          modifiersClassNames={{
+                            disabled: 'opacity-50 cursor-not-allowed'
+                          }}
+                          initialFocus 
+                        />
                       </PopoverContent>
                     </Popover>
                     {fieldErrors.rideDate && <p className="text-sm text-destructive">{fieldErrors.rideDate}</p>}

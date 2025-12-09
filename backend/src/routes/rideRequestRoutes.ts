@@ -19,7 +19,8 @@ router.get('/similar', requireAuth, async (req, res) => {
       originLat: originLat !== undefined ? Number(originLat) : undefined,
       originLng: originLng !== undefined ? Number(originLng) : undefined,
       destinationLat: destinationLat !== undefined ? Number(destinationLat) : undefined,
-      destinationLng: destinationLng !== undefined ? Number(destinationLng) : undefined
+      destinationLng: destinationLng !== undefined ? Number(destinationLng) : undefined,
+      viewerId: req.user!.id
     })
 
     return res.json(result)

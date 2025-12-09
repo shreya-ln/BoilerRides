@@ -1,5 +1,6 @@
 import { PostgrestError } from '@supabase/supabase-js'
 import { supabaseAdmin } from '../lib/supabaseClient'
+import { blockService } from './blockService'
 
 export type RideRequestStatus = 'pending' | 'matched' | 'cancelled'
 
@@ -91,6 +92,7 @@ export const rideRequestService = {
     originLng?: number | null
     destinationLat?: number | null
     destinationLng?: number | null
+    viewerId?: string
   }) {
     const origin = normalizeText(params.origin)
     const destination = normalizeText(params.destination)
@@ -127,6 +129,7 @@ export const rideRequestService = {
       .select('*, profiles:driver_id(id, first_name, last_name, avatar_url)')
       .eq('ride_date', rideDate)
       .gt('seats_available', 0)
+      .not('origin', 'like', '~%') // Filter out inactive rides
 
     if (rideDate === today) {
       query = query.gte('ride_time', currentTime)
@@ -142,7 +145,7 @@ export const rideRequestService = {
 
     const rides = data || []
     const distanceThresholdMeters = 3218.69 // 2 miles
-    const filtered = rides.filter(ride => {
+    let filtered = rides.filter(ride => {
       const haveRideOrigin =
         typeof ride.origin_lat === 'number' && typeof ride.origin_lng === 'number'
       const haveRideDestination =
@@ -175,7 +178,7 @@ export const rideRequestService = {
       return diffMs <= 2 * 60 * 60 * 1000
     }
 
-    const filteredRequests = (rideRequests || []).filter(req => {
+    let filteredRequests = (rideRequests || []).filter(req => {
       const haveReqOrigin =
         typeof req.origin_lat === 'number' && typeof req.origin_lng === 'number'
       const haveReqDest =
@@ -187,6 +190,48 @@ export const rideRequestService = {
 
       return originDist <= distanceThresholdMeters && destDist <= distanceThresholdMeters && withinTwoHours(req.ride_time)
     })
+
+    // Filter out rides and ride requests from blocked users
+    // Also filter out rides where blocked users are riders
+    if (params.viewerId) {
+      const blockedIds = await blockService.getBlockedUsers(params.viewerId)
+      const blockedSet = new Set(blockedIds)
+      
+      // Filter out rides from blocked drivers
+      filtered = filtered.filter((ride: any) => {
+        const driverId = ride.driver_id || ride.profiles?.id
+        return !blockedSet.has(driverId)
+      })
+      
+      // Check if any blocked user is a rider on these rides
+      if (filtered.length > 0) {
+        const rideIds = filtered.map((r: any) => r.id)
+        
+        // Fetch all bookings for these rides
+        const { data: bookings } = await supabaseAdmin
+          .from('ride_bookings')
+          .select('ride_id, rider_id')
+          .in('ride_id', rideIds)
+        
+        // Create a set of ride IDs that have blocked riders
+        const ridesWithBlockedRiders = new Set<number>()
+        if (bookings) {
+          bookings.forEach((booking: any) => {
+            if (blockedSet.has(booking.rider_id)) {
+              ridesWithBlockedRiders.add(booking.ride_id)
+            }
+          })
+        }
+        
+        // Filter out rides that have blocked riders
+        filtered = filtered.filter((ride: any) => !ridesWithBlockedRiders.has(ride.id))
+      }
+      
+      filteredRequests = filteredRequests.filter((req: any) => {
+        const riderId = req.rider_id || req.profiles?.id
+        return !blockedSet.has(riderId)
+      })
+    }
 
     return { rides: filtered, rideRequests: filteredRequests }
   },
@@ -217,7 +262,14 @@ export const rideRequestService = {
       throw friendlyError('Unable to fetch ride requests', error)
     }
 
-    return data ?? []
+    // Filter out ride requests from blocked users
+    const blockedIds = await blockService.getBlockedUsers(viewerId)
+    const blockedSet = new Set(blockedIds)
+    
+    return (data ?? []).filter((req: any) => {
+      const riderId = req.rider_id || req.profiles?.id
+      return !blockedSet.has(riderId)
+    })
   },
 
   async getById(id: number) {

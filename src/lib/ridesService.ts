@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { apiClient } from '@/lib/apiClient'
+import { blockService } from './blockService'
 
 
 export interface Ride {
@@ -62,7 +63,9 @@ export const ridesService = {
   },
 
   // Lists rides with optional filters
-  async listRides(filters?: { destinationIlike?: string; dateEq?: string; timeGte?: string }) {
+  // Only returns active rides (those without ~ prefix in origin)
+  // Filters out rides from blocked users
+  async listRides(filters?: { destinationIlike?: string; dateEq?: string; timeGte?: string }, userId?: string) {
     const now = new Date()
     const today = now.toISOString().split('T')[0]
     const currentTime = now.toTimeString().split(' ')[0]
@@ -70,6 +73,9 @@ export const ridesService = {
     let query = supabase
       .from('rides')
       .select('*, profiles:driver_id(first_name,last_name,avatar_url)')
+
+    // Filter out inactive rides (those with ~ prefix in origin)
+    query = query.not('origin', 'like', '~%')
 
     if (filters?.destinationIlike) {
       query = query.ilike('destination', `%${filters.destinationIlike}%`)
@@ -88,27 +94,106 @@ export const ridesService = {
       .order('ride_time', { ascending: true })
 
     const { data, error } = await query
+    
+    // Filter out rides from blocked users and rides with blocked riders
+    if (!error && data && userId) {
+      try {
+        const blockedIds = await blockService.getBlockedUsers()
+        const blockedSet = new Set(blockedIds)
+        
+        // First filter out rides from blocked drivers
+        let filtered = (data ?? []).filter((ride: any) => {
+          const driverId = ride.driver_id
+          return !blockedSet.has(driverId)
+        })
+        
+        // Then check if any blocked user is a rider on these rides
+        if (filtered.length > 0) {
+          const rideIds = filtered.map((r: any) => r.id)
+          
+          // Fetch all bookings for these rides
+          const { data: bookings } = await supabase
+            .from('ride_bookings')
+            .select('ride_id, rider_id')
+            .in('ride_id', rideIds)
+          
+          // Create a set of ride IDs that have blocked riders
+          const ridesWithBlockedRiders = new Set<number>()
+          if (bookings) {
+            bookings.forEach((booking: any) => {
+              if (blockedSet.has(booking.rider_id)) {
+                ridesWithBlockedRiders.add(booking.ride_id)
+              }
+            })
+          }
+          
+          // Filter out rides that have blocked riders
+          filtered = filtered.filter((ride: any) => !ridesWithBlockedRiders.has(ride.id))
+        }
+        
+        return { data: filtered, error: null }
+      } catch (blockError) {
+        console.error('Error filtering blocked users:', blockError)
+        // Return original data if filtering fails
+      }
+    }
+    
     return { data: data ?? [], error }
   },
 
   // Lists rides created by a specific driver
+  // Only returns active rides (those without ~ prefix in origin)
   async listMyRides(driverId: string) {
     const { data, error } = await supabase
       .from('rides')
       .select('*, profiles:driver_id(first_name,last_name,avatar_url)')
       .eq('driver_id', driverId)
+      .not('origin', 'like', '~%')
       .order('ride_date', { ascending: true })
 
     return { data: data ?? [], error }
   },
 
   // Fetch a single ride by id
-  async getRide(id: number) {
+  // Note: This can return inactive rides (for driver's own view)
+  // Filters out rides from blocked users and rides with blocked riders
+  async getRide(id: number, viewerId?: string) {
     const { data, error } = await supabase
       .from('rides')
       .select('*, profiles:driver_id(first_name,last_name,avatar_url)')
       .eq('id', id)
       .single()
+    
+    // Filter out rides from blocked users and rides with blocked riders
+    if (!error && data && viewerId) {
+      try {
+        const blockedIds = await blockService.getBlockedUsers()
+        const blockedSet = new Set(blockedIds)
+        const driverId = data.driver_id
+        
+        // Check if driver is blocked
+        if (blockedSet.has(driverId)) {
+          return { data: null, error: { message: 'Ride not found', name: 'NotFoundError' } as any }
+        }
+        
+        // Check if any blocked user is a rider on this ride
+        const { data: bookings } = await supabase
+          .from('ride_bookings')
+          .select('rider_id')
+          .eq('ride_id', id)
+        
+        if (bookings) {
+          const hasBlockedRider = bookings.some((booking: any) => blockedSet.has(booking.rider_id))
+          if (hasBlockedRider) {
+            return { data: null, error: { message: 'Ride not found', name: 'NotFoundError' } as any }
+          }
+        }
+      } catch (blockError) {
+        console.error('Error checking blocked users:', blockError)
+        // Return original data if check fails
+      }
+    }
+    
     return { data, error }
   },
 
@@ -133,43 +218,97 @@ export const ridesService = {
   },
 
   // Upcoming rides the user is hosting (future by date/time)
+  // Only returns active rides (those without ~ prefix in origin)
   async listUpcomingHosting(driverId: string) {
     const { data, error } = await supabase
       .from('rides')
       .select('*, profiles:driver_id(first_name,last_name,avatar_url)')
       .eq('driver_id', driverId)
+      .not('origin', 'like', '~%')
       .gte('ride_date', new Date().toISOString().slice(0, 10))
       .order('ride_date', { ascending: true })
     return { data: data ?? [], error }
   },
 
   // Upcoming rides the user booked
+  // Filters out bookings involving blocked users
   async listUpcomingBooked(riderId: string) {
     const { data, error } = await supabase
       .from('ride_bookings')
       .select('seats, rides:ride_id(*, profiles:driver_id(first_name,last_name,avatar_url))')
       .eq('rider_id', riderId)
+    
+    // Filter out bookings involving blocked users
+    if (!error && data) {
+      try {
+        const blockedIds = await blockService.getBlockedUsers()
+        const blockedSet = new Set(blockedIds)
+        const filtered = (data ?? []).filter((booking: any) => {
+          const driverId = booking.rides?.driver_id
+          return !driverId || !blockedSet.has(driverId)
+        })
+        return { data: filtered, error: null }
+      } catch (blockError) {
+        console.error('Error filtering blocked users from bookings:', blockError)
+        // Return original data if filtering fails
+      }
+    }
+    
     return { data: data ?? [], error }
   },
 
   // Fetch all riders (bookings) for a specific ride
-  async getRideBookings(rideId: number) {
+  // Filters out bookings from blocked users
+  async getRideBookings(rideId: number, viewerId?: string) {
     const { data, error } = await supabase
       .from('ride_bookings')
       .select('id, seats, created_at, rider_id, paid, amount, paid_at, profiles:rider_id(id, first_name, last_name, avatar_url, email)')
       .eq('ride_id', rideId)
       .order('created_at', { ascending: true })
     
+    // Filter out bookings from blocked users
+    if (!error && data && viewerId) {
+      try {
+        const blockedIds = await blockService.getBlockedUsers()
+        const blockedSet = new Set(blockedIds)
+        const filtered = (data ?? []).filter((booking: any) => {
+          const riderId = booking.rider_id
+          return !blockedSet.has(riderId)
+        })
+        return { data: filtered, error: null }
+      } catch (blockError) {
+        console.error('Error filtering blocked users from bookings:', blockError)
+        // Return original data if filtering fails
+      }
+    }
+    
     return { data: data ?? [], error }
   },
 
   // Fetch all bookings for a specific rider
+  // Filters out bookings involving blocked users
   async getMyBookings(riderId: string) {
     const { data, error } = await supabase
       .from('ride_bookings')
       .select('id, seats, created_at, ride_id, paid, amount, paid_at, rides:ride_id(*,profiles:driver_id(first_name,last_name,avatar_url,email))')
       .eq('rider_id', riderId)
       .order('created_at', { ascending: false })
+    
+    // Filter out bookings involving blocked users
+    if (!error && data) {
+      try {
+        const blockedIds = await blockService.getBlockedUsers()
+        const blockedSet = new Set(blockedIds)
+        const filtered = (data ?? []).filter((booking: any) => {
+          const driverId = booking.rides?.driver_id
+          return !driverId || !blockedSet.has(driverId)
+        })
+        return { data: filtered, error: null }
+      } catch (blockError) {
+        console.error('Error filtering blocked users from bookings:', blockError)
+        // Return original data if filtering fails
+      }
+    }
     
     return { data: data ?? [], error }
   },
@@ -227,7 +366,13 @@ export const ridesService = {
   // Uses backend API to ensure proper cleanup and seat availability updates
   async cancelBooking(bookingId: number, rideId: number, seatsToFree: number) {
     try {
-      const result = await apiClient.post<{ success: boolean; seatsFreed: number }>(
+      const result = await apiClient.post<{ 
+        success: boolean; 
+        seatsFreed: number;
+        penaltyApplied?: boolean;
+        penaltyAmount?: number;
+        within24Hours?: boolean;
+      }>(
         `/api/rides/${rideId}/bookings/${bookingId}/cancel`,
         { seats: seatsToFree }
       )

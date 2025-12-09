@@ -259,3 +259,65 @@ CREATE TRIGGER set_ride_invites_updated_at
 BEFORE UPDATE ON ride_invites
 FOR EACH ROW
 EXECUTE PROCEDURE public.set_ride_invites_updated_at();
+
+-- ======================================================================================
+-- Add balance field to profiles for tracking penalties and payments
+ALTER TABLE IF EXISTS profiles
+  ADD COLUMN IF NOT EXISTS balance numeric(10,2) DEFAULT 0.00;
+
+-- ======================================================================================
+-- Waitlist table for filled rides
+CREATE TABLE IF NOT EXISTS ride_waitlist (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ride_id BIGINT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+    rider_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    seats INT NOT NULL DEFAULT 1 CHECK (seats > 0),
+    UNIQUE (ride_id, rider_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ride_waitlist_ride_id ON ride_waitlist (ride_id);
+CREATE INDEX IF NOT EXISTS idx_ride_waitlist_rider_id ON ride_waitlist (rider_id);
+
+ALTER TABLE ride_waitlist ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Riders can manage their own waitlist entries"
+    ON ride_waitlist FOR ALL
+    USING (auth.uid() = rider_id)
+    WITH CHECK (auth.uid() = rider_id);
+
+CREATE POLICY "Drivers can view waitlist for their rides"
+    ON ride_waitlist FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM rides
+            WHERE rides.id = ride_waitlist.ride_id
+              AND rides.driver_id = auth.uid()
+        )
+    );
+
+-- ======================================================================================
+-- User blocking functionality
+CREATE TABLE IF NOT EXISTS user_blocks (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    blocker_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    blocked_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    UNIQUE (blocker_id, blocked_id),
+    CHECK (blocker_id != blocked_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_blocks_blocker ON user_blocks (blocker_id);
+CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks (blocked_id);
+
+ALTER TABLE user_blocks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own blocks"
+    ON user_blocks FOR ALL
+    USING (auth.uid() = blocker_id)
+    WITH CHECK (auth.uid() = blocker_id);
+
+CREATE POLICY "Users can view blocks they created"
+    ON user_blocks FOR SELECT
+    USING (auth.uid() = blocker_id);

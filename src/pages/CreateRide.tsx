@@ -186,7 +186,9 @@ const CreateRide = () => {
     const priceNum = Number(price)
     if (!price || isNaN(priceNum) || priceNum <= 0) errors.price = 'Enter a valid price'
     const totalSeatsNum = Number(totalSeats)
-    if (!totalSeats || isNaN(totalSeatsNum) || totalSeatsNum < 1) errors.totalSeats = 'Enter total seats (>=1)'
+    if (!totalSeats || isNaN(totalSeatsNum) || totalSeatsNum < 1) {
+      errors.totalSeats = 'Enter total seats (must be 1 or greater)'
+    }
     setFieldErrors(errors)
     return Object.values(errors)
   }
@@ -348,6 +350,9 @@ const CreateRide = () => {
                         today.setHours(0, 0, 0, 0)
                         return date < today
                       }}
+                      modifiersClassNames={{
+                        disabled: 'opacity-50 cursor-not-allowed'
+                      }}
                       initialFocus 
                     />
                     </PopoverContent>
@@ -408,7 +413,22 @@ const CreateRide = () => {
                   <Label htmlFor="price">Price per seat ($)<span className="text-destructive"> *</span></Label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input id="price" inputMode="decimal" placeholder="e.g., 20" className={`pl-9 ${fieldErrors.price ? 'border-destructive' : ''}`} value={price} onChange={(e) => { setPrice(e.target.value); if (fieldErrors.price) setFieldErrors({ ...fieldErrors, price: '' }) }} />
+                    <Input 
+                      id="price" 
+                      inputMode="numeric" 
+                      placeholder="e.g., 20" 
+                      className={`pl-9 ${fieldErrors.price ? 'border-destructive' : ''}`} 
+                      value={price} 
+                      onChange={(e) => {
+                        // Only allow numeric values (digits and decimal point)
+                        const value = e.target.value
+                        // Allow empty string, digits, and a single decimal point
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setPrice(value)
+                          if (fieldErrors.price) setFieldErrors({ ...fieldErrors, price: '' })
+                        }
+                      }} 
+                    />
                   </div>
                   {fieldErrors.price && <p className="text-sm text-destructive">{fieldErrors.price}</p>}
                 </div>

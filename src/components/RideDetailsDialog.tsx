@@ -20,6 +20,8 @@ import { joinRequestService, JoinRequest } from '@/lib/joinRequestService'
 import { profileService as profileApi, Profile as RiderProfile } from '@/lib/profileService'
 import { useMemo } from 'react'
 import { normalizeRide } from '@/lib/normalizeRide'
+import CancellationPolicyDialog from '@/components/CancellationPolicyDialog'
+import { waitlistService, WaitlistEntry } from '@/lib/waitlistService'
 
 interface RideDetailsDialogProps {
   ride: any
@@ -72,6 +74,11 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   const [driverProfile, setDriverProfile] = useState<RiderProfile | null>(null)
   const [driverProfileLoading, setDriverProfileLoading] = useState(false)
   const [driverProfileError, setDriverProfileError] = useState<string | null>(null)
+  const [showCancellationPolicy, setShowCancellationPolicy] = useState(false)
+  const [waitlistEntries, setWaitlistEntries] = useState<WaitlistEntry[]>([])
+  const [waitlistCount, setWaitlistCount] = useState(0)
+  const [waitlistLoading, setWaitlistLoading] = useState(false)
+  const [onWaitlist, setOnWaitlist] = useState(false)
   const normalizedRide = useMemo(() => normalizeRide(ride), [ride])
   // Check if current user is the driver of this ride
   const isDriver = user?.id === ride.driver_id
@@ -86,7 +93,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
     setError(null)
     
     try {
-      const { data, error: fetchError } = await ridesService.getRideBookings(ride.id)
+      const { data, error: fetchError } = await ridesService.getRideBookings(ride.id, user?.id)
       
       if (fetchError) {
         console.error('Error fetching ride bookings:', fetchError)
@@ -116,8 +123,96 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   useEffect(() => {
     if (open) {
       fetchRiders()
+      fetchWaitlistInfo()
     }
   }, [open, ride?.id])
+
+  /**
+   * Fetch waitlist information
+   */
+  const fetchWaitlistInfo = async () => {
+    if (!ride?.id) return
+
+    setWaitlistLoading(true)
+    try {
+      const count = await waitlistService.getWaitlistCount(ride.id)
+      setWaitlistCount(count)
+
+      if (isDriver) {
+        const entries = await waitlistService.getWaitlistForRide(ride.id)
+        setWaitlistEntries(entries)
+      } else {
+        // Check if current user is on waitlist
+        const myWaitlists = await waitlistService.getMyWaitlists()
+        const onThisWaitlist = myWaitlists.some(w => w.ride_id === ride.id)
+        setOnWaitlist(onThisWaitlist)
+      }
+    } catch (err) {
+      console.error('Failed to fetch waitlist info:', err)
+    } finally {
+      setWaitlistLoading(false)
+    }
+  }
+
+  /**
+   * Handle joining waitlist
+   */
+  const handleJoinWaitlist = async () => {
+    if (!ride?.id || !user) return
+
+    setJoinLoading(true)
+    setJoinError(null)
+
+    try {
+      await waitlistService.addToWaitlist(ride.id, seatCount)
+      setOnWaitlist(true)
+      setWaitlistCount(prev => prev + 1)
+      toast({
+        title: 'Added to waitlist',
+        description: 'You will be notified if a spot becomes available.'
+      })
+    } catch (err: any) {
+      const message = err?.message || 'Failed to join waitlist'
+      setJoinError(message)
+      toast({
+        title: 'Unable to join waitlist',
+        description: message,
+        variant: 'destructive'
+      })
+    } finally {
+      setJoinLoading(false)
+    }
+  }
+
+  /**
+   * Handle leaving waitlist
+   */
+  const handleLeaveWaitlist = async () => {
+    if (!ride?.id) return
+
+    setJoinLoading(true)
+    setJoinError(null)
+
+    try {
+      await waitlistService.removeFromWaitlist(ride.id)
+      setOnWaitlist(false)
+      setWaitlistCount(prev => Math.max(0, prev - 1))
+      toast({
+        title: 'Removed from waitlist',
+        description: 'You have been removed from the waitlist.'
+      })
+    } catch (err: any) {
+      const message = err?.message || 'Failed to leave waitlist'
+      setJoinError(message)
+      toast({
+        title: 'Unable to leave waitlist',
+        description: message,
+        variant: 'destructive'
+      })
+    } finally {
+      setJoinLoading(false)
+    }
+  }
 
   /**
    * Load current user's join request (if any) when dialog opens
@@ -351,6 +446,14 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
       setJoinError(`Only ${seatsAvailable} seat${seatsAvailable === 1 ? '' : 's'} remaining.`)
       return
     }
+
+    // Show cancellation policy dialog first
+    setShowCancellationPolicy(true)
+  }
+
+  const handleConfirmCancellationPolicy = async () => {
+    setShowCancellationPolicy(false)
+    if (!ride?.id) return
 
     setJoinLoading(true)
     setJoinError(null)
@@ -696,9 +799,53 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                 )}
 
                 {user && !existingRequest && rideIsFull && (
-                  <Alert variant="destructive">
-                    <AlertDescription>This ride is currently full.</AlertDescription>
-                  </Alert>
+                  <div className="space-y-3">
+                    <Alert>
+                      <AlertDescription>
+                        This ride is currently full. {waitlistCount > 0 && (
+                          <span className="font-semibold">{waitlistCount} {waitlistCount === 1 ? 'person is' : 'people are'} on the waitlist.</span>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                    {!onWaitlist ? (
+                      <div className="space-y-2">
+                        <Label htmlFor={`waitlist-seats-${ride.id}`}>Seats needed</Label>
+                        <Input
+                          id={`waitlist-seats-${ride.id}`}
+                          type="number"
+                          min={1}
+                          value={seatCount}
+                          onChange={(event) =>
+                            setSeatCount(Math.max(1, Number(event.target.value) || 1))
+                          }
+                          disabled={joinLoading}
+                        />
+                        <Button 
+                          onClick={handleJoinWaitlist} 
+                          disabled={joinLoading}
+                          className="w-full bg-gradient-primary hover:shadow-glow"
+                        >
+                          {joinLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Join Waitlist
+                        </Button>
+                      </div>
+                    ) : (
+                      <Alert>
+                        <AlertDescription>
+                          You are on the waitlist for this ride. You will be automatically added if a spot becomes available.
+                        </AlertDescription>
+                        <Button 
+                          onClick={handleLeaveWaitlist} 
+                          disabled={joinLoading}
+                          variant="outline"
+                          className="mt-2"
+                        >
+                          {joinLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Leave Waitlist
+                        </Button>
+                      </Alert>
+                    )}
+                  </div>
                 )}
 
                 {user && !existingRequest && !rideIsFull && (
@@ -747,6 +894,82 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                       </Button>
                     </div>
                   </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Cancellation Policy Dialog */}
+          <CancellationPolicyDialog
+            open={showCancellationPolicy}
+            onOpenChange={setShowCancellationPolicy}
+            onConfirm={handleConfirmCancellationPolicy}
+            onCancel={() => setShowCancellationPolicy(false)}
+            rideDate={normalizedRide.rideDate}
+            rideTime={normalizedRide.rideTime}
+            price={normalizedRide.price}
+            seats={seatCount}
+          />
+
+          {/* Driver waitlist overview */}
+          {isDriver && rideIsFull && (
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold flex items-center">
+                    <Users className="h-5 w-5 mr-2" />
+                    Waitlist
+                  </h3>
+                  <Badge variant="outline">{waitlistCount} {waitlistCount === 1 ? 'person' : 'people'}</Badge>
+                </div>
+
+                {waitlistLoading && (
+                  <div className="text-sm text-muted-foreground">Loading waitlist…</div>
+                )}
+
+                {!waitlistLoading && waitlistEntries.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No one on the waitlist yet.</p>
+                )}
+
+                {!waitlistLoading && waitlistEntries.length > 0 && (
+                  <div className="space-y-3">
+                    {waitlistEntries.map((entry, index) => {
+                      const profile = entry.profiles ?? {
+                        id: '',
+                        first_name: null,
+                        last_name: null,
+                        email: null,
+                        avatar_url: null
+                      }
+                      const fullName = getFullName(profile.first_name, profile.last_name)
+                      const initials = getInitials(profile.first_name, profile.last_name)
+
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                              {index + 1}
+                            </div>
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={profile.avatar_url || undefined} alt={fullName} />
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{fullName}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {entry.seats} {entry.seats === 1 ? 'seat' : 'seats'} requested
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {format(parseISO(entry.created_at), 'MMM d, h:mm a')}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </CardContent>
             </Card>

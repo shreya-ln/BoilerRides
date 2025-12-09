@@ -7,7 +7,7 @@ import { supabaseAdmin } from '../lib/supabaseClient'
 const fetchRide = async (rideId: number) => {
   const { data, error } = await supabaseAdmin
     .from('rides')
-    .select('id, driver_id, seats_available, total_seats')
+    .select('id, driver_id, seats_available, total_seats, origin, ride_date, ride_time, price')
     .eq('id', rideId)
     .maybeSingle()
 
@@ -16,6 +16,81 @@ const fetchRide = async (rideId: number) => {
   }
 
   return data
+}
+
+/**
+ * Checks if cancellation is within 24 hours of ride departure
+ */
+const isWithin24Hours = (rideDate: string, rideTime: string): boolean => {
+  const now = new Date()
+  const rideDateTime = new Date(`${rideDate}T${rideTime}`)
+  const diffMs = rideDateTime.getTime() - now.getTime()
+  const diffHours = diffMs / (1000 * 60 * 60)
+  return diffHours <= 24 && diffHours > 0
+}
+
+/**
+ * Gets the first waitlist entry for a ride
+ */
+const getFirstWaitlistEntry = async (rideId: number) => {
+  const { data, error } = await supabaseAdmin
+    .from('ride_waitlist')
+    .select('id, rider_id, seats')
+    .eq('ride_id', rideId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Error fetching waitlist:', error)
+    return null
+  }
+
+  return data
+}
+
+/**
+ * Removes a waitlist entry
+ */
+const removeWaitlistEntry = async (waitlistId: number) => {
+  const { error } = await supabaseAdmin
+    .from('ride_waitlist')
+    .delete()
+    .eq('id', waitlistId)
+
+  if (error) {
+    console.error('Error removing waitlist entry:', error)
+  }
+}
+
+/**
+ * Updates rider balance
+ */
+const updateRiderBalance = async (riderId: string, amount: number) => {
+  // Get current balance
+  const { data: profile, error: fetchError } = await supabaseAdmin
+    .from('profiles')
+    .select('balance')
+    .eq('id', riderId)
+    .maybeSingle()
+
+  if (fetchError || !profile) {
+    console.error('Error fetching rider balance:', fetchError)
+    return
+  }
+
+  const currentBalance = Number(profile.balance || 0)
+  const newBalance = currentBalance - amount
+
+  // Update balance
+  const { error: updateError } = await supabaseAdmin
+    .from('profiles')
+    .update({ balance: newBalance })
+    .eq('id', riderId)
+
+  if (updateError) {
+    console.error('Error updating rider balance:', updateError)
+  }
 }
 
 /**
@@ -48,6 +123,7 @@ const friendlyError = (fallback: string, error?: PostgrestError | null) => {
 export const ridesService = {
   /**
    * Cancels a rider's booking and updates ride availability
+   * Applies 25% penalty if cancelled within 24 hours and no waitlist riders available
    * @param params - bookingId, riderId, rideId, seats
    */
   async cancelBooking(params: { bookingId: number; riderId: string; rideId: number; seats: number }) {
@@ -91,6 +167,48 @@ export const ridesService = {
       throw new Error('Seats count does not match booking')
     }
 
+    // Check if cancellation is within 24 hours
+    const within24Hours = isWithin24Hours(ride.ride_date, ride.ride_time)
+    let penaltyApplied = false
+    let penaltyAmount = 0
+    let waitlistFilled = false
+
+    if (within24Hours) {
+      // Check for waitlist riders
+      const waitlistEntry = await getFirstWaitlistEntry(rideId)
+      
+      if (!waitlistEntry) {
+        // No waitlist riders - apply 25% penalty
+        const totalCost = Number(ride.price || 0) * seats
+        penaltyAmount = totalCost * 0.25
+        penaltyApplied = true
+        
+        // Update rider balance (deduct penalty)
+        await updateRiderBalance(riderId, penaltyAmount)
+      } else {
+        // Waitlist rider available - they will fill the spot, no penalty
+        waitlistFilled = true
+        
+        // Remove waitlist entry
+        await removeWaitlistEntry(waitlistEntry.id)
+        
+        // Create booking for waitlist rider (replaces the cancelled booking)
+        const { error: bookingError } = await supabaseAdmin
+          .from('ride_bookings')
+          .insert({
+            ride_id: rideId,
+            rider_id: waitlistEntry.rider_id,
+            seats: waitlistEntry.seats
+          })
+
+        if (bookingError) {
+          console.error('Error creating booking for waitlist rider:', bookingError)
+          // If waitlist booking fails, still proceed with cancellation but no penalty
+          waitlistFilled = false
+        }
+      }
+    }
+
     // Delete the booking
     const { error: deleteError } = await supabaseAdmin
       .from('ride_bookings')
@@ -101,14 +219,25 @@ export const ridesService = {
       throw friendlyError('Unable to cancel booking', deleteError)
     }
 
-    // Update ride seats_available (increment by seats freed)
-    // Use booking.seats to ensure accuracy
+    // Update ride seats_available
     const seatsToFree = booking.seats
-    const newSeatsAvailable = Math.min(
-      Number(ride.total_seats),
-      Number(ride.seats_available) + seatsToFree
-    )
+    let newSeatsAvailable: number
 
+    if (waitlistFilled) {
+      // Waitlist rider filled the spot - seats remain the same
+      // But we need to account for potential seat difference
+      const waitlistEntry = await getFirstWaitlistEntry(rideId) // This should be null now, but check
+      // Actually, seats stay the same since waitlist rider took the spot
+      newSeatsAvailable = Number(ride.seats_available)
+    } else {
+      // No waitlist rider - free up the seats
+      newSeatsAvailable = Math.min(
+        Number(ride.total_seats),
+        Number(ride.seats_available) + seatsToFree
+      )
+    }
+
+    // Update seats_available
     const { error: updateError } = await supabaseAdmin
       .from('rides')
       .update({ seats_available: newSeatsAvailable })
@@ -126,12 +255,18 @@ export const ridesService = {
       .eq('rider_id', riderId)
       .eq('status', 'pending')
 
-    return { success: true, seatsFreed: seatsToFree }
+    return { 
+      success: true, 
+      seatsFreed: seatsToFree,
+      penaltyApplied,
+      penaltyAmount: penaltyApplied ? penaltyAmount : 0,
+      within24Hours
+    }
   },
 
   /**
-   * Deletes a ride and all associated bookings/join requests
-   * First removes all riders, then deletes the ride
+   * Marks a ride as inactive (hidden) instead of deleting it
+   * Uses a special character prefix (~) in the origin field to mark inactive rides
    * @param params - rideId, driverId
    */
   async deleteRide(params: { rideId: number; driverId: string }) {
@@ -143,7 +278,16 @@ export const ridesService = {
     }
 
     // Verify ride exists and belongs to the driver
-    const ride = await fetchRide(rideId)
+    const { data: ride, error: fetchError } = await supabaseAdmin
+      .from('rides')
+      .select('id, driver_id, origin')
+      .eq('id', rideId)
+      .maybeSingle()
+
+    if (fetchError) {
+      throw friendlyError('Unable to load ride', fetchError)
+    }
+
     if (!ride) {
       throw new Error('Ride not found')
     }
@@ -172,16 +316,6 @@ export const ridesService = {
       throw friendlyError('Unable to fetch join requests', joinRequestsError)
     }
 
-    // Delete all bookings first (explicit deletion for clarity, though CASCADE will handle it)
-    const { error: deleteBookingsError } = await supabaseAdmin
-      .from('ride_bookings')
-      .delete()
-      .eq('ride_id', rideId)
-
-    if (deleteBookingsError) {
-      throw friendlyError('Unable to remove riders from ride', deleteBookingsError)
-    }
-
     // Cancel all join requests for this ride
     const { error: cancelRequestsError } = await supabaseAdmin
       .from('join_requests')
@@ -194,14 +328,20 @@ export const ridesService = {
       console.error('Error cancelling join requests:', cancelRequestsError)
     }
 
-    // Finally, delete the ride itself
-    const { error: deleteRideError } = await supabaseAdmin
+    // Mark ride as inactive by prefixing origin with special character (~)
+    // Only add prefix if not already present
+    const inactivePrefix = '~'
+    const newOrigin = ride.origin.startsWith(inactivePrefix) 
+      ? ride.origin 
+      : `${inactivePrefix}${ride.origin}`
+
+    const { error: updateError } = await supabaseAdmin
       .from('rides')
-      .delete()
+      .update({ origin: newOrigin })
       .eq('id', rideId)
 
-    if (deleteRideError) {
-      throw friendlyError('Unable to delete ride', deleteRideError)
+    if (updateError) {
+      throw friendlyError('Unable to mark ride as inactive', updateError)
     }
 
     return {

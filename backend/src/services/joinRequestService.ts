@@ -1,5 +1,6 @@
 import { PostgrestError } from '@supabase/supabase-js'
 import { supabaseAdmin } from '../lib/supabaseClient'
+import { blockService } from './blockService'
 
 export type JoinRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
 
@@ -28,7 +29,7 @@ const ACTIVE_STATUSES: JoinRequestStatus[] = ['pending', 'approved']
 const fetchRide = async (rideId: number) => {
   const { data, error } = await supabaseAdmin
     .from('rides')
-    .select('id, driver_id, seats_available, total_seats')
+    .select('id, driver_id, seats_available, total_seats, origin')
     .eq('id', rideId)
     .maybeSingle()
 
@@ -37,6 +38,14 @@ const fetchRide = async (rideId: number) => {
   }
 
   return data
+}
+
+/**
+ * Checks if a ride is active (not marked as deleted with ~ prefix)
+ */
+const isRideActive = (ride: any): boolean => {
+  const origin = ride?.origin || ''
+  return !origin.startsWith('~')
 }
 
 const ensureDriverAccess = async (userId: string, rideId: number) => {
@@ -67,8 +76,18 @@ export const joinRequestService = {
       throw new Error('Ride not found')
     }
 
+    if (!isRideActive(ride)) {
+      throw new Error('Ride is no longer available')
+    }
+
     if (ride.driver_id === riderId) {
       throw new Error('Drivers cannot request to join their own ride')
+    }
+
+    // Check if rider and driver are blocked
+    const areBlocked = await blockService.areBlocked(riderId, ride.driver_id)
+    if (areBlocked) {
+      throw new Error('Cannot join rides from blocked users')
     }
 
     const seatsAvailable = Number(ride.seats_available ?? 0)
