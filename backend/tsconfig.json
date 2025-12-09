@@ -8,8 +8,8 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "."
   },
-  "include": ["src", "../src/lib/normalizeRide.ts"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }

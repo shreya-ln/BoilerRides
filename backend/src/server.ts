@@ -8,6 +8,7 @@ import ridesRoutes from './routes/ridesRoutes'
 import rideInviteRoutes from './routes/rideInviteRoutes'
 import rideRequestRoutes from './routes/rideRequestRoutes'
 import ratingRoutes from './routes/ratingRoutes'
+import riderRatingRoutes from './routes/riderRatingRoutes'
 
 const app = express()
 const origins = env.corsOrigin.split(',').map(origin => origin.trim())
@@ -31,6 +32,7 @@ app.use('/api/ride-requests', rideRequestRoutes)
 app.use('/api/ride-invites', rideInviteRoutes)
 app.use('/api/rides', ridesRoutes)
 app.use('/api/ratings', ratingRoutes)
+app.use('/api/rider-ratings', riderRatingRoutes)
 
 app.use((req, res) => {
   res.status(404).json({ message: `Route ${req.path} not found` })

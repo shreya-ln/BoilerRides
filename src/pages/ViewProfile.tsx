@@ -8,6 +8,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Skeleton } from '@/components/ui/skeleton'
 import { profileService, Profile } from '@/lib/profileService'
 import { ratingService } from '@/lib/ratingService'
+import { riderRatingService } from '@/lib/riderRatingService'
 import { useAuth } from '@/hooks/useAuth'
 import { ArrowLeft, Mail, User, Star, Edit2, X, Check } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
@@ -33,7 +34,6 @@ export default function ViewProfile() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { id } = useParams<{ id: string }>()
-  const { user } = useAuth()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -80,18 +80,37 @@ export default function ViewProfile() {
     }
   }, [id])
 
-  // Fetch ratings for the user (driver or rider)
+  // Fetch ratings for the user (driver or rider - both types of reviews)
   useEffect(() => {
     if (!profile?.id) return
 
     const fetchRatings = async () => {
       try {
-        const [reviews, avgRating] = await Promise.all([
+        // Fetch both driver ratings (for this user as driver) and rider ratings (for this user as rider)
+        const [driverReviews, driverAvgRating, riderReviews, riderAvgRating] = await Promise.all([
           ratingService.getDriverReviews(profile.id),
-          ratingService.getDriverAverageRating(profile.id)
+          ratingService.getDriverAverageRating(profile.id),
+          riderRatingService.getRiderReviews(profile.id),
+          riderRatingService.getRiderAverageRating(profile.id)
         ])
-        setRatings(reviews)
-        setAverageRating(avgRating)
+        
+        // Combine all reviews and sort by most recent
+        const allReviews = [
+          ...driverReviews.map(r => ({ ...r, type: 'driver' })),
+          ...riderReviews.map(r => ({ ...r, type: 'rider' }))
+        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        
+        setRatings(allReviews)
+        
+        // Calculate combined average rating
+        const totalRatings = driverReviews.concat(riderReviews)
+        if (totalRatings.length > 0) {
+          const sum = totalRatings.reduce((acc, r) => acc + r.rating, 0)
+          const average = Math.round((sum / totalRatings.length) * 10) / 10
+          setAverageRating({ average, count: totalRatings.length })
+        } else {
+          setAverageRating({ average: 0, count: 0 })
+        }
       } catch (err) {
         console.error('Failed to fetch ratings:', err)
       }
@@ -124,7 +143,16 @@ export default function ViewProfile() {
 
     setEditLoading(true)
     try {
-      await ratingService.updateRating(ratingId, editRating, editComment.trim() || undefined)
+      // Determine which service to use based on rating type
+      const ratingToUpdate = ratings.find(r => r.id === ratingId)
+      const isDriverRating = ratingToUpdate?.type === 'driver'
+      
+      if (isDriverRating) {
+        await ratingService.updateRating(ratingId, editRating, editComment.trim() || undefined)
+      } else {
+        await riderRatingService.updateRating(ratingId, editRating, editComment.trim() || undefined)
+      }
+      
       setRatings(ratings.map(r => 
         r.id === ratingId 
           ? { ...r, rating: editRating, comment: editComment.trim() || null }
@@ -363,41 +391,6 @@ export default function ViewProfile() {
                       <Mail className="mr-2 h-4 w-4" />
                       Email {profile.first_name || 'Rider'}
                     </Button>
-                  )}
-                  {user?.id && id && user.id !== id && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button 
-                          variant={isBlocked ? "outline" : "destructive"} 
-                          disabled={blocking}
-                        >
-                          <Ban className="mr-2 h-4 w-4" />
-                          {isBlocked ? 'Unblock User' : 'Block User'}
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            {isBlocked ? 'Unblock this user?' : 'Block this user?'}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {isBlocked 
-                              ? 'You will be able to see each other\'s profiles and rides again.'
-                              : 'Blocking this user will prevent you from seeing each other\'s profiles, rides, or joining each other\'s rides. This action is mutual.'}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel disabled={blocking}>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={isBlocked ? handleUnblock : handleBlock}
-                            disabled={blocking}
-                            className={isBlocked ? '' : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'}
-                          >
-                            {isBlocked ? 'Unblock' : 'Block'}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
                   )}
                 </div>
               </>

@@ -302,3 +302,41 @@ CREATE POLICY "Riders can update their own ratings"
     ON driver_ratings FOR UPDATE
     USING (auth.uid() = rider_id);
 
+-- === Rider Ratings (drivers rate riders after ride completion) ===
+CREATE TABLE IF NOT EXISTS rider_ratings (
+    id bigserial primary key,
+    created_at timestamptz not null default now(),
+    ride_id bigint not null references rides(id) on delete cascade,
+    driver_id uuid not null references profiles(id) on delete cascade,
+    rider_id uuid not null references profiles(id) on delete cascade,
+    rating int not null check (rating >= 1 and rating <= 5),
+    comment text,
+    unique (ride_id, driver_id, rider_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rider_ratings_driver_id ON rider_ratings(driver_id);
+CREATE INDEX IF NOT EXISTS idx_rider_ratings_rider_id ON rider_ratings(rider_id);
+CREATE INDEX IF NOT EXISTS idx_rider_ratings_ride_id ON rider_ratings(ride_id);
+
+ALTER TABLE rider_ratings ENABLE ROW LEVEL SECURITY;
+
+-- Drivers can insert their own ratings
+CREATE POLICY "Drivers can insert their own ratings"
+    ON rider_ratings FOR INSERT
+    WITH CHECK (auth.uid() = driver_id);
+
+-- Drivers can view ratings they've given
+CREATE POLICY "Drivers can view their own ratings"
+    ON rider_ratings FOR SELECT
+    USING (auth.uid() = driver_id);
+
+-- Riders can view ratings they've received
+CREATE POLICY "Riders can view their ratings"
+    ON rider_ratings FOR SELECT
+    USING (auth.uid() = rider_id);
+
+-- Drivers can update their own ratings
+CREATE POLICY "Drivers can update their own ratings"
+    ON rider_ratings FOR UPDATE
+    USING (auth.uid() = driver_id);
+

@@ -12,12 +12,14 @@ import { format, parseISO } from 'date-fns'
 import Navigation from '@/components/Navigation'
 import RideDetailsDialog from '@/components/RideDetailsDialog'
 import RatingModal from '@/components/RatingModal'
+import DriverRatingModal from '@/components/DriverRatingModal'
 import PaymentModal from '@/components/PaymentModal'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { ridesService } from '@/lib/ridesService'
 import { ratingService } from '@/lib/ratingService'
+import { riderRatingService } from '@/lib/riderRatingService'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
 
@@ -40,6 +42,11 @@ const Rides = () => {
   const [selectedBookingForRating, setSelectedBookingForRating] = useState<any>(null)
   const [existingRatings, setExistingRatings] = useState<Map<number, any>>(new Map())
 
+  // Driver rating modal state
+  const [driverRatingModalOpen, setDriverRatingModalOpen] = useState(false)
+  const [selectedRiderForRating, setSelectedRiderForRating] = useState<any>(null)
+  const [existingDriverRatings, setExistingDriverRatings] = useState<Map<number, any>>(new Map())
+
   useEffect(() => {
     const fetchRides = async () => {
       try {
@@ -53,20 +60,7 @@ const Rides = () => {
         })
         setAvailableRides(sorted)
         
-        // Fetch waitlist counts for fully booked rides
-        const fullyBookedRides = sorted.filter((r: any) => r.seats_available === 0)
-        const counts: Record<number, number> = {}
-        await Promise.all(
-          fullyBookedRides.map(async (ride: any) => {
-            try {
-              const count = await waitlistService.getWaitlistCount(ride.id)
-              counts[ride.id] = count
-            } catch (err) {
-              console.error(`Failed to fetch waitlist count for ride ${ride.id}:`, err)
-            }
-          })
-        )
-        setWaitlistCounts(counts)
+        setAvailableRides(sorted)
       } catch (err) {
         console.error(err)
       }
@@ -266,6 +260,36 @@ const Rides = () => {
     }
   }
 
+  const handleDriverRatingSubmit = async (rating: number, comment?: string) => {
+    if (!selectedRiderForRating) return
+
+    try {
+      const rider = selectedRiderForRating
+      const ride = rider.ride
+      
+      // Submit driver rating for rider
+      await riderRatingService.submitRating(ride.id, rider.rider_id, rating, comment)
+
+      // Update existing ratings map
+      const updatedRatings = new Map(existingDriverRatings)
+      updatedRatings.set(ride.id, { rating, comment })
+      setExistingDriverRatings(updatedRatings)
+
+      // Close modal and reset
+      setDriverRatingModalOpen(false)
+      setSelectedRiderForRating(null)
+
+      toast({
+        title: 'Rating submitted',
+        description: `You rated ${rider.first_name || 'the rider'} ${rating} star${rating !== 1 ? 's' : ''}`
+      })
+    } catch (error: any) {
+      console.error('Error submitting driver rating:', error)
+      throw error
+    }
+  }
+
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation isLoggedIn={true} onSignOut={() => { window.location.href = '/' }} />
@@ -397,11 +421,6 @@ const Rides = () => {
                           <div className="flex items-center space-x-1 text-sm">
                             <Users className="h-4 w-4" />
                             <span>{ride.seats_available}/{ride.total_seats} seats available</span>
-                            {ride.seats_available === 0 && waitlistCounts[ride.id] !== undefined && (
-                              <Badge variant="outline" className="ml-2">
-                                {waitlistCounts[ride.id]} {waitlistCounts[ride.id] === 1 ? 'person' : 'people'} on waitlist
-                              </Badge>
-                            )}
                           </div>
                           {user?.id === ride.driver_id && (
                             <Badge
@@ -586,37 +605,19 @@ const Rides = () => {
                                       const within24Hours = diffHours <= 24 && diffHours > 0
                                       const totalCost = Number(ride.price || 0) * booking.seats
                                       const penaltyAmount = totalCost * 0.25
-                                      const waitlistCount = bookingWaitlistCounts[ride.id] || 0
 
                                       if (within24Hours) {
-                                        if (waitlistCount > 0) {
-                                          return (
-                                            <div className="space-y-2">
-                                              <p>Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.</p>
-                                              <p className="font-semibold text-emerald-600">
-                                                ✓ Good News: You are cancelling within 24 hours of departure, but there {waitlistCount === 1 ? 'is' : 'are'} {waitlistCount} {waitlistCount === 1 ? 'person' : 'people'} on the waitlist.
-                                              </p>
-                                              <p>
-                                                Normally, you would be charged a <strong>25% penalty fee</strong> of <strong>${penaltyAmount.toFixed(2)}</strong>, but since there {waitlistCount === 1 ? 'is someone' : 'are people'} on the waitlist who can fill your spot, <strong>you will not be charged this time</strong>.
-                                              </p>
-                                            </div>
-                                          )
-                                        } else {
-                                          return (
-                                            <div className="space-y-2">
-                                              <p>Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.</p>
-                                              <p className="font-semibold text-destructive">
-                                                ⚠️ Late Cancellation Warning: You are cancelling within 24 hours of departure.
-                                              </p>
-                                              <p>
-                                                If there are no riders on the waitlist to fill your spot, you will be charged a <strong>25% penalty fee</strong> of <strong>${penaltyAmount.toFixed(2)}</strong>.
-                                              </p>
-                                              <p className="text-sm text-muted-foreground">
-                                                If a waitlist rider fills your spot, no penalty will be charged.
-                                              </p>
-                                            </div>
-                                          )
-                                        }
+                                        return (
+                                          <div className="space-y-2">
+                                            <p>Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.</p>
+                                            <p className="font-semibold text-destructive">
+                                              ⚠️ Late Cancellation Warning: You are cancelling within 24 hours of departure.
+                                            </p>
+                                            <p>
+                                              You will be charged a <strong>25% penalty fee</strong> of <strong>${penaltyAmount.toFixed(2)}</strong>.
+                                            </p>
+                                          </div>
+                                        )
                                       }
                                       return 'Are you sure you want to cancel your booking for this ride? The driver will be notified and your seat(s) will become available for others.'
                                     })()}
@@ -830,10 +831,24 @@ const Rides = () => {
             onSubmit={handleRatingSubmit}
           />
         )}
+
+        {/* Driver Rating Modal */}
+        {selectedRiderForRating && (
+          <DriverRatingModal
+            open={driverRatingModalOpen}
+            onOpenChange={setDriverRatingModalOpen}
+            riderName={
+              selectedRiderForRating
+                ? `${selectedRiderForRating.first_name || ''} ${selectedRiderForRating.last_name || ''}`.trim()
+                : 'Rider'
+            }
+            riderAvatar={selectedRiderForRating?.avatar_url}
+            onSubmit={handleDriverRatingSubmit}
+          />
+        )}
       </div>
     </div>
   )
 }
 
 export default Rides
-
