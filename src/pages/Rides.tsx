@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon, X, Star } from 'lucide-react'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -46,6 +47,12 @@ const Rides = () => {
   const [driverRatingModalOpen, setDriverRatingModalOpen] = useState(false)
   const [selectedRiderForRating, setSelectedRiderForRating] = useState<any>(null)
   const [existingDriverRatings, setExistingDriverRatings] = useState<Map<number, any>>(new Map())
+
+  // Riders list for driver rating
+  const [rideForRating, setRideForRating] = useState<any>(null)
+  const [ridersToRate, setRidersToRate] = useState<any[]>([])
+  const [loadingRiders, setLoadingRiders] = useState(false)
+  const [showRidersDialog, setShowRidersDialog] = useState(false)
 
   useEffect(() => {
     const fetchRides = async () => {
@@ -289,6 +296,57 @@ const Rides = () => {
     }
   }
 
+  const openRidersToRateDialog = async (ride: any) => {
+    setRideForRating(ride)
+    setLoadingRiders(true)
+    setShowRidersDialog(true)
+
+    try {
+      // Fetch riders for this ride
+      const { data, error } = await ridesService.getRideBookings(ride.id, user?.id)
+
+      if (error) {
+        console.error('Error fetching riders:', error)
+        toast({
+          title: 'Error',
+          description: 'Failed to load riders for this ride',
+          variant: 'destructive'
+        })
+        setLoadingRiders(false)
+        return
+      }
+
+      // Normalize the data and enrich with ride info
+      const normalizedRiders = (data || [])
+        .filter((booking: any) => booking.profiles) // Filter out bookings without profile info
+        .map((booking: any) => ({
+          ...booking,
+          rider_id: booking.profiles?.id || booking.rider_id,
+          first_name: booking.profiles?.first_name,
+          last_name: booking.profiles?.last_name,
+          avatar_url: booking.profiles?.avatar_url,
+          email: booking.profiles?.email,
+          ride: ride
+        }))
+
+      setRidersToRate(normalizedRiders)
+    } catch (err) {
+      console.error('Error fetching riders:', err)
+      toast({
+        title: 'Error',
+        description: 'Failed to load riders',
+        variant: 'destructive'
+      })
+    } finally {
+      setLoadingRiders(false)
+    }
+  }
+
+  const handleRiderSelection = (rider: any) => {
+    setSelectedRiderForRating(rider)
+    setShowRidersDialog(false)
+    setDriverRatingModalOpen(true)
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -726,6 +784,17 @@ const Rides = () => {
                         </div>
                         <div className="flex flex-col space-y-2">
                           <RideDetailsDialog ride={ride} />
+                          {ride.passengers > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openRidersToRateDialog(ride)}
+                              className="bg-gradient-primary hover:shadow-glow text-white"
+                            >
+                              <Star className="h-4 w-4 mr-2" />
+                              Rate Riders
+                            </Button>
+                          )}
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button variant="destructive" size="sm">
@@ -816,6 +885,59 @@ const Rides = () => {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Riders to Rate Dialog */}
+        <Dialog open={showRidersDialog} onOpenChange={setShowRidersDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Rate Your Riders</DialogTitle>
+              <DialogDescription>
+                Select a rider to rate for {rideForRating?.from} → {rideForRating?.to}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {loadingRiders ? (
+                <div className="flex items-center justify-center py-8">
+                  <p className="text-muted-foreground">Loading riders...</p>
+                </div>
+              ) : ridersToRate.length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <p className="text-muted-foreground">No riders to rate</p>
+                </div>
+              ) : (
+                ridersToRate.map((rider) => (
+                  <Button
+                    key={rider.rider_id}
+                    variant="outline"
+                    className="w-full justify-start h-auto py-3"
+                    onClick={() => handleRiderSelection(rider)}
+                  >
+                    <div className="flex items-center gap-3 w-full">
+                      {rider.avatar_url ? (
+                        <img
+                          src={rider.avatar_url}
+                          alt={rider.first_name}
+                          className="w-10 h-10 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white text-xs font-semibold">
+                          {(rider.first_name?.[0] || '?').toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex-1 text-left">
+                        <p className="font-semibold text-sm">
+                          {rider.first_name} {rider.last_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{rider.seats} seat{rider.seats !== 1 ? 's' : ''}</p>
+                      </div>
+                    </div>
+                  </Button>
+                ))
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Rating Modal */}
         {selectedBookingForRating && (
