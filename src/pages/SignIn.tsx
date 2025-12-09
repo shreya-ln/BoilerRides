@@ -46,8 +46,8 @@ const SignIn = () => {
 
   const fillDemoCredentials = () => {
     setFormData({
-      email: "demo@purdue.edu",
-      password: "demo123"
+      email: "dummy@purdue.edu",
+      password: "password"
     });
     setErrors({
       email: "",
@@ -168,10 +168,10 @@ const SignIn = () => {
               </p>
               <div className="space-y-1 text-xs font-mono">
                 <p className="text-muted-foreground">
-                  <span className="font-medium">Email:</span> demo@purdue.edu
+                  <span className="font-medium">Email:</span> dummy@purdue.edu
                 </p>
                 <p className="text-muted-foreground">
-                  <span className="font-medium">Password:</span> demo123
+                  <span className="font-medium">Password:</span> password
                 </p>
               </div>
               <button

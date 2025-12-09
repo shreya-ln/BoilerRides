@@ -7,10 +7,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { profileService, Profile } from '@/lib/profileService'
-import { blockService } from '@/lib/blockService'
+import { ratingService } from '@/lib/ratingService'
 import { useAuth } from '@/hooks/useAuth'
+import { ArrowLeft, Mail, User, Star, Edit2, X, Check } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
-import { ArrowLeft, Mail, User, Ban } from 'lucide-react'
 
 const getInitials = (first?: string | null, last?: string | null) => {
   const firstInitial = first?.charAt(0) ?? ''
@@ -30,13 +31,18 @@ const buildDisplayName = (profile: Profile | null) => {
 
 export default function ViewProfile() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isBlocked, setIsBlocked] = useState(false)
-  const [blocking, setBlocking] = useState(false)
+  const [ratings, setRatings] = useState<any[]>([])
+  const [averageRating, setAverageRating] = useState({ average: 0, count: 0 })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editRating, setEditRating] = useState(0)
+  const [editComment, setEditComment] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
 
   useEffect(() => {
     if (!id) {
@@ -74,72 +80,69 @@ export default function ViewProfile() {
     }
   }, [id])
 
-  // Check if user is blocked
+  // Fetch ratings for the user (driver or rider)
   useEffect(() => {
-    if (!id || !user?.id || id === user.id) {
-      setIsBlocked(false)
-      return
-    }
+    if (!profile?.id) return
 
-    let active = true
-    const checkBlocked = async () => {
+    const fetchRatings = async () => {
       try {
-        const blocked = await blockService.areBlocked(user.id, id)
-        if (active) {
-          setIsBlocked(blocked)
-        }
+        const [reviews, avgRating] = await Promise.all([
+          ratingService.getDriverReviews(profile.id),
+          ratingService.getDriverAverageRating(profile.id)
+        ])
+        setRatings(reviews)
+        setAverageRating(avgRating)
       } catch (err) {
-        console.error('Failed to check block status:', err)
+        console.error('Failed to fetch ratings:', err)
       }
     }
 
-    checkBlocked()
-    return () => {
-      active = false
-    }
-  }, [id, user?.id])
+    fetchRatings()
+  }, [profile?.id])
 
-  const handleBlock = async () => {
-    if (!id || !user?.id) return
-
-    setBlocking(true)
-    try {
-      await blockService.blockUser(id)
-      setIsBlocked(true)
-      toast({
-        title: 'User blocked',
-        description: 'This user has been blocked. You will not see each other\'s profiles or rides.'
-      })
-    } catch (err: any) {
-      toast({
-        title: 'Failed to block user',
-        description: err?.message || 'Please try again.',
-        variant: 'destructive'
-      })
-    } finally {
-      setBlocking(false)
-    }
+  const startEdit = (rating: any) => {
+    setEditingId(rating.id)
+    setEditRating(rating.rating)
+    setEditComment(rating.comment || '')
   }
 
-  const handleUnblock = async () => {
-    if (!id || !user?.id) return
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditRating(0)
+    setEditComment('')
+  }
 
-    setBlocking(true)
-    try {
-      await blockService.unblockUser(id)
-      setIsBlocked(false)
+  const saveEdit = async (ratingId: number) => {
+    if (editRating === 0) {
       toast({
-        title: 'User unblocked',
-        description: 'This user has been unblocked.'
+        title: 'Error',
+        description: 'Please select a rating',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setEditLoading(true)
+    try {
+      await ratingService.updateRating(ratingId, editRating, editComment.trim() || undefined)
+      setRatings(ratings.map(r => 
+        r.id === ratingId 
+          ? { ...r, rating: editRating, comment: editComment.trim() || null }
+          : r
+      ))
+      setEditingId(null)
+      toast({
+        title: 'Success',
+        description: 'Rating updated successfully'
       })
     } catch (err: any) {
       toast({
-        title: 'Failed to unblock user',
-        description: err?.message || 'Please try again.',
+        title: 'Error',
+        description: err?.message || 'Failed to update rating',
         variant: 'destructive'
       })
     } finally {
-      setBlocking(false)
+      setEditLoading(false)
     }
   }
 
@@ -155,7 +158,7 @@ export default function ViewProfile() {
             Back
           </Button>
           <div className="text-sm text-muted-foreground">
-            Viewing rider profile
+            Viewing {profile?.role === 'driver' ? 'driver' : 'rider'} profile
           </div>
         </div>
 
@@ -203,6 +206,151 @@ export default function ViewProfile() {
                     <p className="mt-2 text-sm leading-6">
                       {profile.bio}
                     </p>
+                  </div>
+                )}
+
+                {averageRating.count > 0 && (
+                  <div className="max-w-2xl w-full text-left">
+                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+                      Ratings & Reviews
+                    </h2>
+                    
+                    {/* Average Rating Summary */}
+                    <div className="flex items-center gap-4 mb-6 p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold text-yellow-600 dark:text-yellow-400">
+                          {averageRating.average}
+                        </span>
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              size={18}
+                              className={`${
+                                star <= Math.round(averageRating.average)
+                                  ? 'fill-yellow-400 stroke-yellow-400'
+                                  : 'stroke-gray-300 text-gray-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Based on {averageRating.count} rating{averageRating.count !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+
+                    {/* Recent Reviews */}
+                    {ratings.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-medium text-foreground">Recent Reviews</h3>
+                        {ratings.slice(0, 5).map((review) => (
+                          <div key={review.id} className="p-3 border rounded-lg bg-card space-y-2">
+                            {editingId === review.id ? (
+                              // Edit mode
+                              <>
+                                <div className="space-y-2">
+                                  <div className="flex gap-2 justify-center py-2">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <button
+                                        key={star}
+                                        onClick={() => setEditRating(star)}
+                                        className="transition-transform hover:scale-110 focus:outline-none"
+                                      >
+                                        <Star
+                                          size={20}
+                                          className={`${
+                                            star <= editRating
+                                              ? 'fill-yellow-400 stroke-yellow-400'
+                                              : 'stroke-gray-300 text-gray-300'
+                                          }`}
+                                        />
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <Textarea
+                                    placeholder="Update your review..."
+                                    value={editComment}
+                                    onChange={(e) => setEditComment(e.target.value)}
+                                    maxLength={500}
+                                    className="resize-none"
+                                    rows={2}
+                                  />
+                                  <p className="text-xs text-muted-foreground text-right">
+                                    {editComment.length}/500
+                                  </p>
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={cancelEdit}
+                                    disabled={editLoading}
+                                  >
+                                    <X size={14} className="mr-1" />
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => saveEdit(review.id)}
+                                    disabled={editLoading}
+                                    className="bg-blue-600 hover:bg-blue-700"
+                                  >
+                                    <Check size={14} className="mr-1" />
+                                    Save
+                                  </Button>
+                                </div>
+                              </>
+                            ) : (
+                              // View mode
+                              <>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex gap-1">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Star
+                                        key={star}
+                                        size={14}
+                                        className={`${
+                                          star <= review.rating
+                                            ? 'fill-yellow-400 stroke-yellow-400'
+                                            : 'stroke-gray-300 text-gray-300'
+                                        }`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(review.created_at).toLocaleDateString()}
+                                    </span>
+                                    {user?.id === review.rider_id && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => startEdit(review)}
+                                        className="h-6 w-6 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                                        title="Edit rating"
+                                      >
+                                        <Edit2 size={14} />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                                {review.comment && (
+                                  <p className="text-sm text-foreground leading-relaxed">
+                                    "{review.comment}"
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                        {ratings.length > 5 && (
+                          <p className="text-xs text-muted-foreground pt-2">
+                            +{ratings.length - 5} more review{ratings.length - 5 !== 1 ? 's' : ''}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

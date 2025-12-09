@@ -13,6 +13,7 @@ export interface Profile {
   bio: string | null
   avatar_url: string | null
   is_complete: boolean
+  role?: string | null
 }
 
 export interface CreateProfileData {

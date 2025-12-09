@@ -13,8 +13,12 @@ CREATE TABLE profiles (
     phone TEXT,
     bio TEXT,
     avatar_url TEXT,
-    is_complete BOOLEAN DEFAULT false
+    is_complete BOOLEAN DEFAULT false,
+    role TEXT DEFAULT 'rider'
 );
+
+-- Add role column if it doesn't exist (for existing databases)
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'rider';
 
 -- Enable Row Level Security
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
@@ -260,64 +264,41 @@ BEFORE UPDATE ON ride_invites
 FOR EACH ROW
 EXECUTE PROCEDURE public.set_ride_invites_updated_at();
 
--- ======================================================================================
--- Add balance field to profiles for tracking penalties and payments
-ALTER TABLE IF EXISTS profiles
-  ADD COLUMN IF NOT EXISTS balance numeric(10,2) DEFAULT 0.00;
-
--- ======================================================================================
--- Waitlist table for filled rides
-CREATE TABLE IF NOT EXISTS ride_waitlist (
-    id BIGSERIAL PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ride_id BIGINT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
-    rider_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    seats INT NOT NULL DEFAULT 1 CHECK (seats > 0),
-    UNIQUE (ride_id, rider_id)
+-- === Driver Ratings (riders rate drivers after ride completion) ===
+CREATE TABLE IF NOT EXISTS driver_ratings (
+    id bigserial primary key,
+    created_at timestamptz not null default now(),
+    ride_id bigint not null references rides(id) on delete cascade,
+    driver_id uuid not null references profiles(id) on delete cascade,
+    rider_id uuid not null references profiles(id) on delete cascade,
+    rating int not null check (rating >= 1 and rating <= 5),
+    comment text,
+    unique (ride_id, rider_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ride_waitlist_ride_id ON ride_waitlist (ride_id);
-CREATE INDEX IF NOT EXISTS idx_ride_waitlist_rider_id ON ride_waitlist (rider_id);
+CREATE INDEX IF NOT EXISTS idx_driver_ratings_driver_id ON driver_ratings(driver_id);
+CREATE INDEX IF NOT EXISTS idx_driver_ratings_rider_id ON driver_ratings(rider_id);
+CREATE INDEX IF NOT EXISTS idx_driver_ratings_ride_id ON driver_ratings(ride_id);
 
-ALTER TABLE ride_waitlist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE driver_ratings ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Riders can manage their own waitlist entries"
-    ON ride_waitlist FOR ALL
-    USING (auth.uid() = rider_id)
+-- Riders can insert their own ratings
+CREATE POLICY "Riders can insert their own ratings"
+    ON driver_ratings FOR INSERT
     WITH CHECK (auth.uid() = rider_id);
 
-CREATE POLICY "Drivers can view waitlist for their rides"
-    ON ride_waitlist FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1
-            FROM rides
-            WHERE rides.id = ride_waitlist.ride_id
-              AND rides.driver_id = auth.uid()
-        )
-    );
+-- Riders can view ratings they've given
+CREATE POLICY "Riders can view their own ratings"
+    ON driver_ratings FOR SELECT
+    USING (auth.uid() = rider_id);
 
--- ======================================================================================
--- User blocking functionality
-CREATE TABLE IF NOT EXISTS user_blocks (
-    id BIGSERIAL PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    blocker_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    blocked_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    UNIQUE (blocker_id, blocked_id),
-    CHECK (blocker_id != blocked_id)
-);
+-- Drivers can view ratings they've received
+CREATE POLICY "Drivers can view their ratings"
+    ON driver_ratings FOR SELECT
+    USING (auth.uid() = driver_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_blocks_blocker ON user_blocks (blocker_id);
-CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks (blocked_id);
+-- Riders can update their own ratings
+CREATE POLICY "Riders can update their own ratings"
+    ON driver_ratings FOR UPDATE
+    USING (auth.uid() = rider_id);
 
-ALTER TABLE user_blocks ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can manage their own blocks"
-    ON user_blocks FOR ALL
-    USING (auth.uid() = blocker_id)
-    WITH CHECK (auth.uid() = blocker_id);
-
-CREATE POLICY "Users can view blocks they created"
-    ON user_blocks FOR SELECT
-    USING (auth.uid() = blocker_id);

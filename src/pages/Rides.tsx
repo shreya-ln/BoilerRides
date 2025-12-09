@@ -4,19 +4,20 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon, X } from 'lucide-react'
+import { MapPin, Users, Clock, Search, Plus, Car, CalendarIcon, X, Star } from 'lucide-react'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { format, parseISO } from 'date-fns'
 
 import Navigation from '@/components/Navigation'
 import RideDetailsDialog from '@/components/RideDetailsDialog'
+import RatingModal from '@/components/RatingModal'
 import PaymentModal from '@/components/PaymentModal'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { ridesService } from '@/lib/ridesService'
-import { waitlistService } from '@/lib/waitlistService'
+import { ratingService } from '@/lib/ratingService'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
 
@@ -33,8 +34,11 @@ const Rides = () => {
   const [availableRides, setAvailableRides] = useState<any[]>([])
   const [myRidesState, setMyRidesState] = useState<any[]>([])
   const [myBookings, setMyBookings] = useState<any[]>([])
-  const [waitlistCounts, setWaitlistCounts] = useState<Record<number, number>>({})
-  const [bookingWaitlistCounts, setBookingWaitlistCounts] = useState<Record<number, number>>({})
+
+  // Rating modal state
+  const [ratingModalOpen, setRatingModalOpen] = useState(false)
+  const [selectedBookingForRating, setSelectedBookingForRating] = useState<any>(null)
+  const [existingRatings, setExistingRatings] = useState<Map<number, any>>(new Map())
 
   useEffect(() => {
     const fetchRides = async () => {
@@ -125,22 +129,22 @@ const Rides = () => {
       const { data, error } = await ridesService.getMyBookings(user.id)
       if (error) return console.error('Error fetching my bookings:', error)
       setMyBookings(data || [])
-      
-      // Fetch waitlist counts for rides in bookings
-      const counts: Record<number, number> = {}
-      await Promise.all(
-        (data || []).map(async (booking: any) => {
-          if (booking.rides?.id) {
-            try {
-              const count = await waitlistService.getWaitlistCount(booking.rides.id)
-              counts[booking.rides.id] = count
-            } catch (err) {
-              console.error(`Failed to fetch waitlist count for ride ${booking.rides.id}:`, err)
+
+      // Load existing ratings for all bookings
+      if (data && data.length > 0) {
+        const ratingsMap = new Map()
+        for (const booking of data) {
+          try {
+            const existingRating = await ratingService.getRideRating(booking.ride_id)
+            if (existingRating) {
+              ratingsMap.set(booking.ride_id, existingRating)
             }
+          } catch (err) {
+            console.error(`Failed to load rating for ride ${booking.ride_id}:`, err)
           }
-        })
-      )
-      setBookingWaitlistCounts(counts)
+        }
+        setExistingRatings(ratingsMap)
+      }
     }
     fetchMyBookings()
     const onVisible = () => {
@@ -216,6 +220,49 @@ const Rides = () => {
       setAvailableRides(filtered)
     } catch (err) {
       console.error('Unexpected error:', err)
+    }
+  }
+
+  /**
+   * Check if a ride is completed (date/time has passed)
+   */
+  const isRideCompleted = (rideDate: string, rideTime: string): boolean => {
+    const now = new Date()
+    const rideDateTime = new Date(`${rideDate}T${rideTime}`)
+    // Consider ride completed 10 minutes after scheduled time
+    rideDateTime.setMinutes(rideDateTime.getSeconds() + 5)
+    return now > rideDateTime
+  }
+
+  /**
+   * Handle rating submission
+   */
+  const handleRatingSubmit = async (rating: number, comment?: string) => {
+    if (!selectedBookingForRating) return
+
+    try {
+      const booking = selectedBookingForRating
+      const ride = booking.rides
+      
+      // Submit rating
+      await ratingService.submitRating(ride.id, ride.driver_id, rating, comment)
+
+      // Update existing ratings map
+      const updatedRatings = new Map(existingRatings)
+      updatedRatings.set(ride.id, { rating, comment })
+      setExistingRatings(updatedRatings)
+
+      // Close modal and reset
+      setRatingModalOpen(false)
+      setSelectedBookingForRating(null)
+
+      toast({
+        title: 'Rating submitted',
+        description: `You rated ${ride.profiles?.first_name || 'the driver'} ${rating} star${rating !== 1 ? 's' : ''}`
+      })
+    } catch (error: any) {
+      console.error('Error submitting rating:', error)
+      throw error
     }
   }
 
@@ -338,7 +385,14 @@ const Rides = () => {
                         </div>
 
                         <div className="flex items-center space-x-4">
-                          <span className={`text-sm ${user?.id === ride.driver_id ? 'text-white' : ''}`}>Driver: {ride.profiles ? (`${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`).trim() || '—' : '—'}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => navigate(`/profiles/${ride.driver_id}`)}
+                            className={`p-0 h-auto text-sm hover:underline ${user?.id === ride.driver_id ? 'text-white hover:text-white/80' : 'hover:text-primary'}`}
+                          >
+                            Driver: {ride.profiles ? (`${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`).trim() || '—' : '—'}
+                          </Button>
                           {ride.rating && <Badge variant="secondary">★ {ride.rating}</Badge>}
                           <div className="flex items-center space-x-1 text-sm">
                             <Users className="h-4 w-4" />
@@ -437,7 +491,14 @@ const Rides = () => {
                           </div>
 
                           <div className="flex items-center space-x-4">
-                            <span className="text-sm">Driver: {ride.profiles ? (`${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`).trim() || '—' : '—'}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate(`/profiles/${ride.driver_id}`)}
+                              className="p-0 h-auto text-sm hover:text-primary hover:underline"
+                            >
+                              Driver: {ride.profiles ? (`${ride.profiles.first_name ?? ''} ${ride.profiles.last_name ?? ''}`).trim() || '—' : '—'}
+                            </Button>
                             <div className="flex items-center space-x-1 text-sm">
                               <Users className="h-4 w-4" />
                               <span>{booking.seats} {booking.seats === 1 ? 'seat' : 'seats'} booked</span>
@@ -452,7 +513,7 @@ const Rides = () => {
                             <div className="text-xs text-muted-foreground">total cost</div>
                           </div>
 
-                          <div className="flex gap-2 items-center">
+                          <div className="flex gap-2 items-center flex-wrap">
                             {!booking.paid ? (
                               <PaymentModal
                                 bookingId={booking.id}
@@ -471,6 +532,39 @@ const Rides = () => {
                               />
                             ) : (
                               <Badge className="bg-emerald-600 text-white">Paid</Badge>
+                            )}
+
+                            {!isRideCompleted(ride.ride_date, ride.ride_time) && !existingRatings.has(ride.id) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled
+                                title="Wait until the ride is complete to rate the driver"
+                              >
+                                <Star className="h-4 w-4 mr-2" />
+                                Rate Driver
+                              </Button>
+                            )}
+
+                            {isRideCompleted(ride.ride_date, ride.ride_time) && !existingRatings.has(ride.id) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedBookingForRating(booking)
+                                  setRatingModalOpen(true)
+                                }}
+                              >
+                                <Star className="h-4 w-4 mr-2" />
+                                Rate Driver
+                              </Button>
+                            )}
+
+                            {existingRatings.has(ride.id) && (
+                              <Badge variant="secondary" className="bg-yellow-50 text-yellow-800 border-yellow-200">
+                                <Star className="h-3 w-3 mr-1 fill-yellow-400" />
+                                {existingRatings.get(ride.id)?.rating} star{existingRatings.get(ride.id)?.rating !== 1 ? 's' : ''}
+                              </Badge>
                             )}
 
                             <AlertDialog>
@@ -721,9 +815,25 @@ const Rides = () => {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Rating Modal */}
+        {selectedBookingForRating && (
+          <RatingModal
+            open={ratingModalOpen}
+            onOpenChange={setRatingModalOpen}
+            driverName={
+              selectedBookingForRating.rides?.profiles
+                ? `${selectedBookingForRating.rides.profiles.first_name || ''} ${selectedBookingForRating.rides.profiles.last_name || ''}`.trim()
+                : 'Your Driver'
+            }
+            driverAvatar={selectedBookingForRating.rides?.profiles?.avatar_url}
+            onSubmit={handleRatingSubmit}
+          />
+        )}
       </div>
     </div>
   )
 }
 
 export default Rides
+
