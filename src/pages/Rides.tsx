@@ -37,6 +37,7 @@ const Rides = () => {
   const [availableRides, setAvailableRides] = useState<any[]>([])
   const [myRidesState, setMyRidesState] = useState<any[]>([])
   const [myBookings, setMyBookings] = useState<any[]>([])
+  const [myTrustedRides, setMyTrustedRides] = useState<Set<Number>>(new Set());
 
   // Rating modal state
   const [ratingModalOpen, setRatingModalOpen] = useState(false)
@@ -53,6 +54,7 @@ const Rides = () => {
   const [ridersToRate, setRidersToRate] = useState<any[]>([])
   const [loadingRiders, setLoadingRiders] = useState(false)
   const [showRidersDialog, setShowRidersDialog] = useState(false)
+
 
   useEffect(() => {
     const fetchRides = async () => {
@@ -154,6 +156,27 @@ const Rides = () => {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [user?.id])
+
+  useEffect(() => {
+    const fetchMyTrustedRides = async () => {
+      if (!user?.id) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('trusted_rides_list')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error("Failed to load trusted rides:", error);
+        return;
+      }
+      const list = data?.trusted_rides_list || [];
+      const trustedSet = new Set(list);
+      setMyTrustedRides(trustedSet);
+    }
+    fetchMyTrustedRides();
+  }, [user?.id]);
 
   // Realtime: refresh my bookings when a join_request for this user is updated (e.g., approved)
   useEffect(() => {
@@ -348,6 +371,33 @@ const Rides = () => {
     setDriverRatingModalOpen(true)
   }
 
+  const toggleTrustedRide = async (rideId: any) => {
+    if (!user?.id) return;
+
+    try {
+      const updatedSet = new Set(myTrustedRides)
+      if (updatedSet.has(rideId)) {
+        updatedSet.delete(rideId)
+      } else {
+        updatedSet.add(rideId)
+      }
+
+      const updatedArray = Array.from(updatedSet)
+      const { error } = await supabase
+        .from('profiles')
+        .update({ trusted_rides_list: updatedArray })
+        .eq('id', user.id)
+
+      if (error) {
+        console.error("Failed to update trusted rides:", error)
+        return;
+      }
+      setMyTrustedRides(updatedSet)
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation isLoggedIn={true} onSignOut={() => { window.location.href = '/' }} />
@@ -444,7 +494,7 @@ const Rides = () => {
             <div className="space-y-4">
               {availableRides.length === 0 && <h1>No rides found</h1>}
               {availableRides.map((ride: any) => (
-                <Card key={ride.id} className={`hover:shadow-purdue transition-shadow ${user?.id === ride.driver_id ? 'bg-black text-white' : ''}`}>
+                <Card key={ride.id} className={`hover:shadow-purdue transition-shadow ${user?.id === ride.driver_id ? 'bg-black text-white' : ''}${myTrustedRides.has(ride.id) ? "bg-yellow-50" : ""}`}>
                   <CardContent className="p-6">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                       <div className="flex-1">
@@ -516,6 +566,17 @@ const Rides = () => {
                             >
                               Edit
                             </Button>
+                          )}
+                          {user?.id != ride.driver_id && (
+                            <div className="pt-4">
+                              <Button
+                                variant="secondary"
+                                className="bg-white text-black text-xl border hover:bg-white/90"
+                                onClick={() => toggleTrustedRide(ride.id)}
+                              >
+                                {myTrustedRides.has(ride.id) ? "★" : "☆"}
+                              </Button>
+                            </div>
                           )}
                         </div>
                       </div>

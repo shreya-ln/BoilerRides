@@ -651,6 +651,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
               </div>
             </CardContent>
 
+
             {/* Panic Button */}
             {isUserConfirmedRider(user?.id, riders) && <div className="pt-4">
               <Button
