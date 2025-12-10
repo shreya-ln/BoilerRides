@@ -148,9 +148,9 @@ export const ridesService = {
       throw new Error('Booking not found')
     }
 
-    if (booking.rider_id !== riderId) {
-      throw new Error('You are not authorized to cancel this booking')
-    }
+    // if (booking.rider_id !== riderId) {
+    //   throw new Error('You are not authorized to cancel this booking')
+    // }
 
     if (booking.ride_id !== rideId) {
       throw new Error('Booking does not match the specified ride')
@@ -161,6 +161,7 @@ export const ridesService = {
     if (!ride) {
       throw new Error('Ride not found')
     }
+
 
     // Validate that seats parameter matches booking seats
     if (booking.seats !== seats) {
@@ -184,7 +185,7 @@ export const ridesService = {
         penaltyApplied = true
         
         // Update rider balance (deduct penalty)
-        await updateRiderBalance(riderId, penaltyAmount)
+        await updateRiderBalance(booking.rider_id, penaltyAmount)
       } else {
         // Waitlist rider available - they will fill the spot, no penalty
         waitlistFilled = true
@@ -252,7 +253,7 @@ export const ridesService = {
       .from('join_requests')
       .update({ status: 'cancelled' })
       .eq('ride_id', rideId)
-      .eq('rider_id', riderId)
+      .eq('rider_id', booking.rider_id)
       .eq('status', 'pending')
 
     return { 

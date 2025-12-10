@@ -32,7 +32,9 @@ const Profile = () => {
     last_name: "",
     email: "",
     phone: "",
-    bio: ""
+    bio: "",
+    emergency_contact_name: "",
+    emergency_contact_phone: ""
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -50,7 +52,9 @@ const Profile = () => {
         last_name: profile.last_name || "",
         email: profile.email || user?.email || "",
         phone: profile.phone || "",
-        bio: profile.bio || ""
+        bio: profile.bio || "",
+        emergency_contact_name: profile.emergency_contact_name || "",
+        emergency_contact_phone: profile.emergency_contact_phone || ""
       });
     } else if (user && !profileLoading) {
       // Set email from user if no profile exists
@@ -109,6 +113,11 @@ const Profile = () => {
 
   const handleSave = async () => {
     if (!user) return;
+    if (!editData.emergency_contact_name || !editData.emergency_contact_phone) {
+      setErrors(["Emergency contact info is required"]);
+      setIsSubmitting(false);
+      return;
+    }
     
     setIsSubmitting(true);
     setErrors([]);
@@ -130,14 +139,18 @@ const Profile = () => {
             first_name: editData.first_name,
             last_name: editData.last_name,
             phone: editData.phone,
-            bio: editData.bio
+            bio: editData.bio,
+            emergency_contact_name: editData.emergency_contact_name,
+            emergency_contact_phone: editData.emergency_contact_phone
           })
         : await createProfile({
             first_name: editData.first_name,
             last_name: editData.last_name,
             email: editData.email,
             phone: editData.phone,
-            bio: editData.bio
+            bio: editData.bio,
+            emergency_contact_name: editData.emergency_contact_name,
+            emergency_contact_phone: editData.emergency_contact_phone
           });
 
       if (success) {
@@ -165,7 +178,9 @@ const Profile = () => {
         last_name: profile.last_name || "",
         email: profile.email || user?.email || "",
         phone: profile.phone || "",
-        bio: profile.bio || ""
+        bio: profile.bio || "",
+        emergency_contact_name: profile.emergency_contact_name || "",
+        emergency_contact_phone: profile.emergency_contact_phone || ""
       });
     }
     setIsEditing(false);
@@ -403,6 +418,46 @@ const Profile = () => {
                     </div>
                   )}
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="emergency_contact_name">Emergency Contact Name</Label>
+                  {isEditing ? (
+                    <Input
+                      id="emergency_contact_name"
+                      name="emergency_contact_name"
+                      value={editData.emergency_contact_name}
+                      onChange={handleInputChange}
+                      placeholder="Contact full name"
+                      required
+                    />
+                  ) : (
+                    <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-md">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span>{profile?.emergency_contact_name || 'Not provided'}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="emergency_contact_phone">Emergency Contact Phone</Label>
+                  {isEditing ? (
+                    <Input
+                      id="emergency_contact_phone"
+                      name="emergency_contact_phone"
+                      type="tel"
+                      value={editData.emergency_contact_phone}
+                      onChange={handleInputChange}
+                      placeholder="+1 (555) 123-4567"
+                      required
+                    />
+                  ) : (
+                    <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-md">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <span>{profile?.emergency_contact_phone || 'Not provided'}</span>
+                    </div>
+                  )}
+                </div>
+
 
                 <div className="space-y-2">
                   <Label htmlFor="bio">Bio</Label>

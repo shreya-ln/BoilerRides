@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription } from '@/components/ui/alert-dialog'
-import { MapPin, Clock, Users, Car, DollarSign, Eye, AlertCircle, X, Loader2, UserRound } from 'lucide-react'
+import { MapPin, Clock, Users, Car, DollarSign, Eye, AlertCircle, AlertTriangle, X, Loader2, UserRound } from 'lucide-react'
 import { ridesService } from '@/lib/ridesService'
 import { supabase } from '@/lib/supabase'
 import { format, parseISO } from 'date-fns'
@@ -40,6 +40,8 @@ interface RiderInfo {
     last_name?: string | null
     avatar_url?: string | null
     email?: string | null
+    emergency_contact_name?: string | null
+    emergency_contact_phone?: string | null
   } | any
   paid?: boolean
   amount?: number | null
@@ -79,6 +81,7 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   const [waitlistCount, setWaitlistCount] = useState(0)
   const [waitlistLoading, setWaitlistLoading] = useState(false)
   const [onWaitlist, setOnWaitlist] = useState(false)
+  const [panicOpen, setPanicOpen] = useState(false)
   const normalizedRide = useMemo(() => normalizeRide(ride), [ride])
   // Check if current user is the driver of this ride
   const isDriver = user?.id === ride.driver_id
@@ -422,6 +425,8 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
   const driverDisplayName = getFullName(driverFirstName, driverLastName)
   const driverEmail = driverProfile?.email ?? driverSupabaseProfile?.email ?? 'No Purdue email on file'
   const driverAvatarUrl = driverProfile?.avatar_url ?? driverSupabaseProfile?.avatar_url ?? undefined
+  const driverEmergencyName = driverProfile?.emergency_contact_name ?? driverSupabaseProfile?.emergency_contact_name ?? undefined
+  const driverEmergencyPhone = driverProfile?.emergency_contact_phone ?? driverSupabaseProfile?.emergency_contact_phone ?? undefined
 
   const seatsAvailable = Math.max(0, Number(computedSeatsAvailable || 0))
   const rideIsFull = seatsAvailable <= 0
@@ -559,6 +564,11 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
     fetchRiders()
   }
 
+  const isUserConfirmedRider = (userId: string | undefined, riders: RiderInfo[]): boolean => {
+    if (!userId) return false;
+    return riders.some(r => r.rider_id === userId);
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -640,6 +650,46 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                 </div>
               </div>
             </CardContent>
+
+            {/* Panic Button */}
+            {isUserConfirmedRider(user?.id, riders) && <div className="pt-4">
+              <Button
+                variant="destructive"
+                className="w-full flex items-center justify-center gap-2 py-3 text-md font-semibold"
+                onClick={() => setPanicOpen(true)}
+              >
+                <AlertTriangle className="h-5 w-5" />
+                Panic
+              </Button>
+            </div>}
+
+            {/* Confirmation Modal For Panic */}
+            <Dialog open={panicOpen} onOpenChange={setPanicOpen}>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="text-red-600">Activate Panic Mode?</DialogTitle>
+                  <DialogDescription>
+                    This is for emergencies only.  
+                    No alerts will be sent yet—UI only.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <DialogFooter className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setPanicOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      // UI only
+                      setPanicOpen(false);
+                    }}
+                  >
+                    Confirm
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </Card>
 
           {/* Driver Information */}
@@ -668,28 +718,38 @@ export default function RideDetailsDialog({ ride, trigger }: RideDetailsDialogPr
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  <div className="flex items-center gap-4 flex-1">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src={driverAvatarUrl || undefined} />
-                      <AvatarFallback className="bg-primary/10 text-primary">
-                        {getInitials(driverFirstName, driverLastName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="text-left">
-                      <div className="font-semibold text-base">{driverDisplayName}</div>
-                      <div className="text-sm text-muted-foreground">{driverEmail}</div>
+                <>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className="flex items-center gap-4 flex-1">
+                      <Avatar className="h-12 w-12">
+                        <AvatarImage src={driverAvatarUrl || undefined} />
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {getInitials(driverFirstName, driverLastName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="text-left">
+                        <div className="font-semibold text-base">{driverDisplayName}</div>
+                        <div className="text-sm text-muted-foreground">{driverEmail}</div>
+                      </div>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleNavigateToProfile(ride?.driver_id)}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Profile
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleNavigateToProfile(ride?.driver_id)}
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Profile
-                  </Button>
-                </div>
+                  {driverEmergencyName && driverEmergencyPhone && (
+                    <div className="mt-4">
+                      <Label className="text-sm font-semibold">Emergency Contact</Label>
+                      <div className="text-sm">
+                        {driverEmergencyName}: {driverEmergencyPhone}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
