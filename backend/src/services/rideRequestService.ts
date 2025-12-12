@@ -241,7 +241,8 @@ export const rideRequestService = {
     const { data, error } = await supabaseAdmin
       .from('ride_requests')
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
-      .eq('rider_id', riderId)
+      .or(`rider_id.eq.${riderId},interested_rider_ids.cs.{${riderId}}`)
+      .neq('status', 'cancelled')
       .gte('ride_date', today)
       .order('created_at', { ascending: false })
 
@@ -259,6 +260,7 @@ export const rideRequestService = {
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .eq('is_completed', false)
       .neq('rider_id', viewerId)
+      .neq('status', 'cancelled')
       .gte('ride_date', today)
       .order('created_at', { ascending: false })
 
@@ -370,7 +372,7 @@ export const rideRequestService = {
 
     const { data: request, error: fetchError } = await supabaseAdmin
       .from('ride_requests')
-      .select('id, rider_id, interested_rider_ids, status')
+      .select('id, rider_id, interested_rider_ids, status, seats')
       .eq('id', requestId)
       .maybeSingle()
 
@@ -399,10 +401,15 @@ export const rideRequestService = {
     }
 
     const updatedIds = Array.from(new Set([...existingList, riderId]))
+    const baseSeats = Number(request.seats || 0)
+    const newSeats = Math.max(baseSeats + 1, updatedIds.length)
 
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('ride_requests')
-      .update({ interested_rider_ids: updatedIds })
+      .update({
+        interested_rider_ids: updatedIds,
+        seats: newSeats
+      })
       .eq('id', requestId)
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .single()
