@@ -237,10 +237,12 @@ export const rideRequestService = {
   },
 
   async listForRider(riderId: string) {
+    const today = new Date().toISOString().split('T')[0]
     const { data, error } = await supabaseAdmin
       .from('ride_requests')
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .eq('rider_id', riderId)
+      .gte('ride_date', today)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -251,11 +253,13 @@ export const rideRequestService = {
   },
 
   async listAll(viewerId: string) {
+    const today = new Date().toISOString().split('T')[0]
     const { data, error } = await supabaseAdmin
       .from('ride_requests')
       .select('*, profiles:rider_id(id, first_name, last_name, email, avatar_url)')
       .eq('is_completed', false)
       .neq('rider_id', viewerId)
+      .gte('ride_date', today)
       .order('created_at', { ascending: false })
 
     if (error) {
